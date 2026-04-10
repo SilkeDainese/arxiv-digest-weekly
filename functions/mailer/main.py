@@ -25,6 +25,7 @@ from shared.firestore_client import (
     update_subscriber_last_sent,
 )
 from shared.gmail_client import GmailSendError, build_message, send_message
+from shared.quality_gate import validate_papers_batch
 from shared.secrets import get_hmac_secret
 from shared.tokens import PURPOSE_MANAGE, PURPOSE_UNSUBSCRIBE, generate_token
 from shared.week_utils import build_function_url, current_week_iso
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "silke-hub")
 REGION = os.environ.get("FUNCTION_REGION", "europe-west1")
+SILKE_EMAIL = "silke.dainese@gmail.com"
 
 
 @functions_framework.http
@@ -59,6 +61,45 @@ def send_digest(request):
 
     papers = pending.get("papers", [])
     logger.info("Loaded %d papers from pending digest for week %s", len(papers), week_iso)
+
+    # ── 2b. Quality gate — fail closed ────────────────────────────────────
+    # Every paper must have plain_summary AND highlight_phrase.
+    # If any paper fails, abort the entire send and notify Silke.
+    failures = validate_papers_batch(papers)
+    if failures:
+        failure_detail = "\n".join(f"  - {f}" for f in failures)
+        abort_msg = (
+            f"Monday send ABORTED for {week_iso} — quality gate failed.\n"
+            f"{len(failures)} paper(s) missing required AI output fields:\n"
+            f"{failure_detail}\n\n"
+            "Action required: re-run prep_and_preview to regenerate AI summaries, "
+            "or check that anthropic-api-key / gemini-api-key secrets are populated."
+        )
+        logger.error(abort_msg)
+
+        # Notify Silke
+        try:
+            abort_subject = f"[arxiv-digest] Monday send ABORTED — quality gate failed ({week_iso})"
+            abort_html = (
+                f"<p><strong>Monday send aborted for {week_iso}.</strong></p>"
+                f"<p>{len(failures)} paper(s) missing required AI output fields:</p>"
+                f"<ul>{''.join(f'<li>{f}</li>' for f in failures)}</ul>"
+                f"<p>Action: re-run prep_and_preview or check Secret Manager for "
+                f"<code>anthropic-api-key</code> / <code>gemini-api-key</code>.</p>"
+            )
+            abort_text = abort_msg
+            notification = build_message(
+                to_email=SILKE_EMAIL,
+                subject=abort_subject,
+                html_body=abort_html,
+                text_body=abort_text,
+            )
+            send_message(notification)
+            logger.info("Abort notification sent to %s", SILKE_EMAIL)
+        except Exception as notify_exc:
+            logger.error("Failed to send abort notification: %s", notify_exc)
+
+        return f"ABORTED: quality gate failed — {len(failures)} paper(s) missing plain_summary or highlight_phrase", 500
 
     # ── 3. Load subscribers ────────────────────────────────────────────────
     subscribers = get_all_subscribers()

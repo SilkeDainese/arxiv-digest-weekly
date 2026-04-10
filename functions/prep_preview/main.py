@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import functions_framework
 
+from shared.ai_scorer import score_papers_with_ai
 from shared.arxiv_fetcher import (
     build_personalized_digest,
     fetch_weekly_papers,
@@ -54,7 +55,15 @@ def prep_and_preview(request):
     logger.info("Fetched %d papers", len(papers))
 
     scored_papers = score_papers_for_all_topics(papers)
-    logger.info("Scored %d papers globally", len(scored_papers))
+    logger.info("Scored %d papers globally (keyword)", len(scored_papers))
+
+    # ── 1b. AI scoring cascade (Claude → Vertex Gemini → Gemini API → keyword) ──
+    # Enriches each paper with plain_summary, highlight_phrase, score_tier.
+    # Falls through gracefully if all API keys are missing or secrets not yet populated.
+    scored_papers = score_papers_with_ai(scored_papers)
+    ai_count = sum(1 for p in scored_papers if p.get("score_tier") == "ai")
+    kw_count = len(scored_papers) - ai_count
+    logger.info("AI scoring complete: %d ai-scored, %d keyword-scored", ai_count, kw_count)
 
     # ── 2. Store in Firestore ──────────────────────────────────────────────
     set_pending_digest(week_iso, {

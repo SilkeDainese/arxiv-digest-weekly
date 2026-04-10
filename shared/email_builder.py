@@ -51,6 +51,11 @@ def _h(text: str) -> str:
     return html_mod.escape(str(text))
 
 
+def _paper_html(paper: dict[Any, Any]) -> str:
+    """Alias for _paper_card_branded — used by prep_preview for example digest HTML."""
+    return _paper_card_branded(paper)
+
+
 def _short_title(title: str, max_len: int = 100) -> str:
     """Truncate a title to max_len characters, preserving word boundaries."""
     if len(title) <= max_len:
@@ -129,18 +134,39 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
 
     Uses the same visual language as _render_student_paper_card in the old digest.py:
     - DM Serif Display title (linked)
-    - IBM Plex Sans body for abstract / summary
+    - Highlight phrase as a small gold label above the title (when AI-scored)
+    - IBM Plex Sans body for plain_summary (AI) or abstract (fallback)
     - DM Mono labels for authors / meta
     - Bottom border separator
     - Optional score badge (for preview email)
+
+    Rendering priority:
+      1. plain_summary (AI-generated) — shown if non-empty
+      2. abstract (raw) — fallback when plain_summary is absent
     """
     title = _h(_short_title(paper.get("title", "Untitled")))
     authors = paper.get("authors", [])
     author_str = _h(", ".join(authors[:5]) + (" et al." if len(authors) > 5 else ""))
-    abstract = _h(paper.get("abstract", ""))
     url = _h(paper.get("url", "#"))
     pdf_url = _h(paper.get("pdf_url", paper.get("url", "#")))
 
+    # ── Summary: prefer AI plain_summary over raw abstract ──
+    plain_summary = (paper.get("plain_summary") or "").strip()
+    abstract = (paper.get("abstract") or "").strip()
+    body_text = _h(plain_summary if plain_summary else abstract)
+
+    # ── Highlight phrase (AI-scored papers only) ──
+    highlight_phrase = (paper.get("highlight_phrase") or "").strip()
+    highlight_html = ""
+    if highlight_phrase and plain_summary:
+        # Render as a small gold-accented label above the title
+        highlight_html = (
+            f'<div style="font-family:{FONT_MONO};font-size:10px;letter-spacing:0.12em;'
+            f'text-transform:uppercase;color:{UMBER};margin-bottom:6px">'
+            f'{_h(highlight_phrase)}</div>'
+        )
+
+    # ── Score badge (preview email only) ──
     score_badge = ""
     if show_score:
         score = paper.get("global_score", paper.get("subscriber_score", 0))
@@ -159,11 +185,12 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
     return f"""
     <div style="padding:16px 0;border-bottom:1px solid {CARD_BORDER}">
       {score_badge}
+      {highlight_html}
       <div style="font-family:{FONT_HEADING};font-size:19px;color:{ASH_BLACK};line-height:1.35;margin-bottom:4px">
         <a href="{url}" style="color:inherit;text-decoration:none">{title}</a>
       </div>
       <div style="font-family:{FONT_MONO};font-size:11px;color:{WARM_GREY};margin-bottom:8px">{author_str}</div>
-      <div style="font-family:{FONT_BODY};font-size:14px;color:#555;line-height:1.6;margin-bottom:8px">{abstract}</div>
+      <div style="font-family:{FONT_BODY};font-size:14px;color:#555;line-height:1.6;margin-bottom:8px">{body_text}</div>
       <div style="font-family:{FONT_BODY};font-size:12px">
         <a href="{url}" style="color:{PINE_LIGHT};text-decoration:none;margin-right:14px">Abstract on arXiv &#8594;</a>
         <a href="{pdf_url}" style="color:{WARM_GREY};text-decoration:none">PDF</a>
@@ -175,13 +202,15 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
 
 
 def _paper_text(paper: dict[str, Any]) -> str:
-    """Render a single paper as plaintext."""
+    """Render a single paper as plaintext. Uses plain_summary if available."""
     title = paper.get("title", "Untitled")
     authors = paper.get("authors", [])
     author_str = ", ".join(authors[:5]) + (" et al." if len(authors) > 5 else "")
+    plain_summary = (paper.get("plain_summary") or "").strip()
     abstract = paper.get("abstract", "")
+    body = plain_summary if plain_summary else abstract
     url = paper.get("url", "#")
-    return f"\n{title}\n{author_str}\n{abstract}\n{url}\n"
+    return f"\n{title}\n{author_str}\n{body}\n{url}\n"
 
 
 # ─────── Digest email (student copy) ─────────────────────────────────────

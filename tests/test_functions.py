@@ -48,6 +48,10 @@ def make_paper(i: int = 1) -> dict:
         "url": f"https://arxiv.org/abs/2501.0000{i}",
         "pdf_url": f"https://arxiv.org/pdf/2501.0000{i}",
         "global_score": float(i * 10),
+        # Quality gate requires these fields from the AI scoring step
+        "plain_summary": f"Summary for paper {i}.",
+        "highlight_phrase": f"stellar evolution paper {i}",
+        "score_tier": "ai",
     }
 
 

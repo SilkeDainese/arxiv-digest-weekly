@@ -5,3 +5,9 @@ functions-framework==3.8.3
 google-cloud-firestore==2.19.0
 google-cloud-secret-manager==2.23.3
 requests==2.33.0
+
+# AI scoring cascade (Claude primary, Gemini fallback)
+# These are imported lazily in shared/ai_scorer.py — missing packages cause
+# graceful tier-skip, not a hard failure. Pin to known-good versions.
+anthropic==0.51.0
+google-genai==1.11.0
