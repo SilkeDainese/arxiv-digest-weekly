@@ -146,6 +146,7 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
     - DM Mono labels for authors / meta
     - Bottom border separator
     - Optional score badge (for preview email)
+    - AU affiliation badge when au_authors is non-empty
 
     Rendering priority:
       1. plain_summary (AI-generated) — shown if non-empty
@@ -173,6 +174,17 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
             f'{_h(highlight_phrase)}</div>'
         )
 
+    # ── AU affiliation badge ──
+    au_authors = paper.get("au_authors") or []
+    au_badge_html = ""
+    if au_authors:
+        au_badge_html = (
+            f'<span style="display:inline-block;font-family:{FONT_MONO};font-size:9.5px;'
+            f'letter-spacing:0.1em;background:{GOLD};color:{ASH_BLACK};padding:2px 7px;'
+            f'border-radius:3px;margin-left:6px">'
+            f'\U0001f3db Aarhus University</span>'
+        )
+
     # ── Score badge (preview email only) ──
     score_badge = ""
     if show_score:
@@ -196,7 +208,7 @@ def _paper_card_branded(paper: dict[str, Any], show_score: bool = False) -> str:
       <div style="font-family:{FONT_HEADING};font-size:19px;color:{ASH_BLACK};line-height:1.35;margin-bottom:4px">
         <a href="{url}" style="color:inherit;text-decoration:none">{title}</a>
       </div>
-      <div style="font-family:{FONT_MONO};font-size:11px;color:{WARM_GREY};margin-bottom:8px">{author_str}</div>
+      <div style="font-family:{FONT_MONO};font-size:11px;color:{WARM_GREY};margin-bottom:8px">{author_str}{au_badge_html}</div>
       <div style="font-family:{FONT_BODY};font-size:14px;color:#555;line-height:1.6;margin-bottom:8px">{body_text}</div>
       <div style="font-family:{FONT_BODY};font-size:12px">
         <a href="{url}" style="color:{PINE_LIGHT};text-decoration:none;margin-right:14px">Abstract on arXiv &#8594;</a>
@@ -221,6 +233,44 @@ def _paper_text(paper: dict[str, Any]) -> str:
 
 
 # ─────── Digest email (student copy) ─────────────────────────────────────
+
+
+def _score_tier_notice(papers: list[dict[str, Any]]) -> tuple[str, str]:
+    """Return (html_notice, text_notice) for the dominant score tier in the paper list.
+
+    Checks score_tier on each paper and picks the majority tier.
+    Tier hierarchy for display: claude > gemini-vertex / gemini-api > keyword / ai.
+
+    Returns:
+        (html_snippet, text_snippet) — both are short, subtle one-liners.
+    """
+    if not papers:
+        return "", ""
+
+    # Count tiers
+    tier_counts: dict[str, int] = {}
+    for p in papers:
+        tier = (p.get("score_tier") or "keyword").lower()
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+
+    # Dominant tier = most frequent
+    dominant = max(tier_counts, key=lambda t: tier_counts[t])
+
+    if dominant == "claude":
+        html = "Summaries by Claude Haiku (Anthropic)"
+        text = "Summaries by Claude Haiku (Anthropic)"
+    elif dominant in ("gemini-vertex", "gemini-api"):
+        html = "Summaries by Gemini (Google)"
+        text = "Summaries by Gemini (Google)"
+    elif dominant == "keyword":
+        html = "Keyword ranking only \u2014 AI scoring unavailable this run"
+        text = "Keyword ranking only — AI scoring unavailable this run"
+    else:
+        # Generic "ai" tier or unknown — don't claim a specific model
+        html = "Summaries by AI"
+        text = "Summaries by AI"
+
+    return html, text
 
 
 def build_personalized_digest_email(
@@ -248,6 +298,14 @@ def build_personalized_digest_email(
             f'font-family:{FONT_HEADING};font-style:italic;font-size:18px">'
             f'No new papers matched your topics this week. All quiet on the arXiv front. &#x2615;</div>'
         )
+
+    # ── Score tier notice ──
+    tier_html, tier_text = _score_tier_notice(papers)
+    tier_notice_html = (
+        f'<div style="font-family:{FONT_MONO};font-size:9px;color:{WARM_GREY};'
+        f'letter-spacing:0.08em;margin-top:6px;text-align:center">{_h(tier_html)}</div>'
+        if tier_html else ""
+    )
 
     # ── Footer links ──
     manage_link = f'<a href="{_h(manage_url)}" style="color:{PINE};text-decoration:none">&#x2699;&#xFE0F; Change categories</a>'
@@ -285,6 +343,7 @@ def build_personalized_digest_email(
       Summaries are AI-generated and may contain errors.<br>
       This digest is a personal project and is not affiliated with Aarhus University.
     </div>
+    {tier_notice_html}
   </td></tr>"""
         + _html_close()
     )
@@ -294,6 +353,7 @@ def build_personalized_digest_email(
         if papers
         else "No new papers matched your topics this week."
     )
+    tier_text_line = f"\n{tier_text}" if tier_text else ""
     text_body = f"""arXiv Digest \u2014 {week_iso}
 Your topics: {topic_display}
 
@@ -301,7 +361,7 @@ Your topics: {topic_display}
 
 ---
 Change categories: {manage_url}
-Unsubscribe: {unsubscribe_url}
+Unsubscribe: {unsubscribe_url}{tier_text_line}
 """
 
     return subject, html_body, text_body

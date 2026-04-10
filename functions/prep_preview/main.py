@@ -21,6 +21,7 @@ from shared.ai_scorer import score_papers_with_ai
 from shared.arxiv_fetcher import (
     build_personalized_digest,
     fetch_weekly_papers,
+    pre_filter_for_ai,
     score_papers_for_all_topics,
 )
 from shared.email_builder import build_preview_email
@@ -57,11 +58,29 @@ def prep_and_preview(request):
     scored_papers = score_papers_for_all_topics(papers)
     logger.info("Scored %d papers globally (keyword)", len(scored_papers))
 
-    # ── 1b. AI scoring cascade (Claude → Vertex Gemini → Gemini API → keyword) ──
+    # ── 1b. Pre-filter: top 50 by global_score before AI scoring ──────────────
+    # Caps token usage and prevents Cloud Function timeout.
+    # Papers with global_score == 0 are excluded from AI scoring entirely.
+    ai_candidates = pre_filter_for_ai(scored_papers)
+    logger.info(
+        "Pre-filter: %d papers → %d sent to AI scorer (top 50 by global_score)",
+        len(scored_papers), len(ai_candidates),
+    )
+
+    # ── 1c. AI scoring cascade (Claude → Vertex Gemini → Gemini API → keyword) ──
     # Enriches each paper with plain_summary, highlight_phrase, score_tier.
     # Falls through gracefully if all API keys are missing or secrets not yet populated.
-    scored_papers = score_papers_with_ai(scored_papers)
-    ai_count = sum(1 for p in scored_papers if p.get("score_tier") == "ai")
+    ai_scored = score_papers_with_ai(ai_candidates)
+
+    # Merge AI-scored candidates back into the full scored_papers list.
+    # Papers that were not sent to AI (below pre-filter threshold) keep their
+    # keyword-only global_score and will get keyword fallback scoring at send time.
+    ai_scored_by_id = {p["id"]: p for p in ai_scored}
+    scored_papers = [
+        ai_scored_by_id.get(p["id"], p) for p in scored_papers
+    ]
+
+    ai_count = sum(1 for p in scored_papers if p.get("score_tier") in ("ai", "claude", "gemini-vertex", "gemini-api"))
     kw_count = len(scored_papers) - ai_count
     logger.info("AI scoring complete: %d ai-scored, %d keyword-scored", ai_count, kw_count)
 
