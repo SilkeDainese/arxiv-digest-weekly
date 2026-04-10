@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Secrets — NEVER commit these
+.env
+.env.*
+secrets.yaml
+secrets.json
+config_local.py
+*.secret
+*credentials*.json
+*oauth*.json
+client_secret*.json
+token.json
+
+# GCP service account keys — absolutely never
+*-service-account*.json
+*-key.json
+gcp-key*.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Cloud Functions build artifacts
+.gcloudignore
+
+# Local test outputs
+test_output/

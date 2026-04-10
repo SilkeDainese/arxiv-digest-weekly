@@ -1,0 +1,7 @@
+# Shared requirements for all Cloud Functions
+# All versions pinned — PY-6 compliance
+
+functions-framework==3.8.3
+google-cloud-firestore==2.19.0
+google-cloud-secret-manager==2.23.3
+requests==2.32.3

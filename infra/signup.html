@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<!--
+  arXiv Digest Weekly — Signup Page
+  Designed for deployment to silkedainese.github.io/arxiv-digest
+
+  Uses Firebase JS SDK (v10 compat) to write directly to Firestore.
+  Firestore rules enforce field whitelist and topic validation server-side.
+  No backend needed for signup — direct client write is safe by design.
+
+  IMPORTANT before deploying:
+    1. Replace FIREBASE_CONFIG with your actual Firebase project config
+       (from Firebase Console → Project Settings → Your apps)
+    2. Add this page's origin to Firebase authorized domains
+       (Firebase Console → Authentication → Settings → Authorized domains)
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>arXiv Digest — Weekly papers for AU astronomy students</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Georgia, serif;
+      max-width: 560px;
+      margin: 60px auto;
+      padding: 0 20px;
+      color: #333;
+      line-height: 1.6;
+    }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    .subtitle { color: #666; margin-top: 0; margin-bottom: 28px; }
+    label { display: block; margin: 10px 0; font-size: 15px; cursor: pointer; }
+    input[type="checkbox"] { margin-right: 10px; }
+    input[type="email"] {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      font-family: Georgia, serif;
+    }
+    input[type="email"]:focus {
+      outline: none;
+      border-color: #1a6fa8;
+    }
+    .topic-section { margin: 20px 0; }
+    .topic-section h2 { font-size: 16px; margin-bottom: 12px; }
+    button {
+      padding: 12px 28px;
+      background: #1a6fa8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      font-family: Georgia, serif;
+      margin-top: 16px;
+    }
+    button:hover { background: #145a8a; }
+    button:disabled { background: #aaa; cursor: default; }
+    .error { color: #c0392b; font-size: 14px; margin-top: 8px; display: none; }
+    .success {
+      padding: 20px;
+      background: #e8f5e9;
+      border: 1px solid #4caf50;
+      border-radius: 4px;
+      margin-top: 20px;
+      display: none;
+    }
+    .note { font-size: 13px; color: #888; margin-top: 24px; }
+    a { color: #1a6fa8; }
+  </style>
+</head>
+<body>
+
+  <h1>arXiv Digest</h1>
+  <p class="subtitle">Weekly curated papers, delivered to your inbox every Monday morning.</p>
+
+  <p>
+    Sign up to receive a personalized selection of recent arXiv papers
+    relevant to your research interests. Run by
+    <a href="https://silkedainese.github.io">Silke S. Dainese</a> for AU astronomy students.
+  </p>
+
+  <form id="signup-form" novalidate>
+
+    <label for="email" style="font-weight:bold;margin-bottom:6px;">Your email address</label>
+    <input
+      type="email"
+      id="email"
+      name="email"
+      placeholder="you@phys.au.dk"
+      autocomplete="email"
+      required
+    >
+
+    <div class="topic-section">
+      <h2>Topics (select at least one)</h2>
+
+      <label><input type="checkbox" name="topics" value="stars">
+        Stars &amp; Stellar Astrophysics</label>
+
+      <label><input type="checkbox" name="topics" value="exoplanets">
+        Exoplanets &amp; Planetary Systems</label>
+
+      <label><input type="checkbox" name="topics" value="galaxies">
+        Galaxies &amp; Galactic Astrophysics</label>
+
+      <label><input type="checkbox" name="topics" value="cosmology">
+        Cosmology &amp; Large-Scale Structure</label>
+
+      <label><input type="checkbox" name="topics" value="high_energy">
+        High-Energy Astrophysics &amp; Compact Objects</label>
+
+      <label><input type="checkbox" name="topics" value="instrumentation">
+        Instrumentation &amp; Observational Methods</label>
+
+      <label><input type="checkbox" name="topics" value="solar_helio">
+        Solar &amp; Heliospheric Physics</label>
+
+      <label><input type="checkbox" name="topics" value="methods_ml">
+        Statistical Methods &amp; Machine Learning</label>
+    </div>
+
+    <div class="error" id="error-msg"></div>
+
+    <button type="submit" id="submit-btn">Sign me up</button>
+
+    <div class="success" id="success-msg">
+      <strong>You're on the list.</strong>
+      You'll receive your first digest next Monday morning.
+      <br><br>
+      Each digest includes a link to manage your topics or unsubscribe.
+    </div>
+
+  </form>
+
+  <p class="note">
+    No account required. No password. Just papers.<br>
+    Sent once a week, every Monday at 07:00 CET.<br>
+    You can unsubscribe any time from any digest email.
+  </p>
+
+  <!-- Firebase SDK v10 (compat mode — works without bundler) -->
+  <!-- SRI hash: update this when upgrading Firebase version -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"
+          integrity="sha384-placeholder-update-with-real-sri-hash"
+          crossorigin="anonymous"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"
+          integrity="sha384-placeholder-update-with-real-sri-hash"
+          crossorigin="anonymous"></script>
+
+  <script>
+    // ── Firebase configuration ───────────────────────────────────────────
+    // Replace with actual values from Firebase Console → Project Settings
+    // These are PUBLIC — safe to include in client-side code.
+    // Security comes from Firestore rules, not from hiding these values.
+    const FIREBASE_CONFIG = {
+      apiKey: "REPLACE_WITH_FIREBASE_API_KEY",
+      authDomain: "silke-hub.firebaseapp.com",
+      projectId: "silke-hub",
+      storageBucket: "silke-hub.appspot.com",
+      messagingSenderId: "REPLACE_WITH_SENDER_ID",
+      appId: "REPLACE_WITH_APP_ID"
+    };
+
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db = firebase.firestore();
+
+    // ── Form submission ──────────────────────────────────────────────────
+    const form = document.getElementById("signup-form");
+    const errorMsg = document.getElementById("error-msg");
+    const successMsg = document.getElementById("success-msg");
+    const submitBtn = document.getElementById("submit-btn");
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = "block";
+    }
+
+    function hideError() {
+      errorMsg.style.display = "none";
+    }
+
+    form.addEventListener("submit", async function(e) {
+      e.preventDefault();
+      hideError();
+
+      const email = document.getElementById("email").value.trim().toLowerCase();
+      const topicCheckboxes = document.querySelectorAll('input[name="topics"]:checked');
+      const topics = Array.from(topicCheckboxes).map(cb => cb.value);
+
+      // Client-side validation (Firestore rules enforce this server-side too)
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showError("Please enter a valid email address.");
+        return;
+      }
+
+      if (topics.length === 0) {
+        showError("Please select at least one topic.");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Signing up...";
+
+      try {
+        await db.collection("subscribers").add({
+          email: email,
+          topics: topics,
+          created_at: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+
+        form.style.display = "none";
+        successMsg.style.display = "block";
+
+      } catch (err) {
+        console.error("Firestore write failed:", err.code);
+        // Show a friendly error — do not expose internal error details
+        if (err.code === "permission-denied") {
+          showError("Signup is temporarily unavailable. Please try again later.");
+        } else {
+          showError("Something went wrong. Please try again.");
+        }
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign me up";
+      }
+    });
+  </script>
+
+</body>
+</html>
