@@ -266,3 +266,192 @@ class TestStaticPages:
         html = build_cancel_confirmation_page("2026-W15")
         assert "2026-W15" in html
         assert "cancelled" in html.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Branded template regression tests — added 2026-04-10 (Webb)
+# Ensure preview + digest emails use the full branded styling (pine/gold/IBM Plex),
+# not the generic plain-HTML stub.
+# ─────────────────────────────────────────────────────────────────────────────
+
+BRAND_PINE = "#2F4F3E"
+BRAND_GOLD = "#EBC944"
+BRAND_ASH_WHITE = "#F6F5F2"
+IBM_PLEX = "IBM Plex Sans"
+DM_SERIF = "DM Serif Display"
+DM_MONO = "DM Mono"
+
+
+class TestBrandedPreviewEmail:
+    """Preview email must use branded styling and show subscriber count prominently."""
+
+    def setup_method(self):
+        self.papers = [make_paper(i) for i in range(5)]
+        self.topic_breakdown = {"stars": 10, "exoplanets": 5}
+
+    def _build(self, subscriber_count: int = 15):
+        return build_preview_email(
+            self.papers, subscriber_count, self.topic_breakdown,
+            WEEK, CANCEL_URL, LOGS_URL
+        )
+
+    # ── Subscriber count line ──────────────────────────────────────────────
+
+    def test_html_shows_subscriber_count_line(self):
+        """Preview header must show 'N subscribers will receive this Monday'."""
+        _, html, _ = self._build(subscriber_count=15)
+        assert "15 subscribers will receive this" in html
+
+    def test_html_zero_subscribers_dry_run_message(self):
+        """Zero subscribers: preview must say 'No subscribers yet — this is a dry run.'"""
+        _, html, _ = self._build(subscriber_count=0)
+        assert "No subscribers yet" in html
+        assert "dry run" in html
+
+    def test_text_shows_subscriber_count(self):
+        _, _, text = self._build(subscriber_count=7)
+        assert "7 subscribers" in text
+
+    def test_text_zero_subscribers_dry_run(self):
+        _, _, text = self._build(subscriber_count=0)
+        assert "dry run" in text.lower()
+
+    # ── Branded CSS / typography ───────────────────────────────────────────
+
+    def test_html_uses_pine_colour(self):
+        _, html, _ = self._build()
+        assert BRAND_PINE in html
+
+    def test_html_uses_gold_colour(self):
+        _, html, _ = self._build()
+        assert BRAND_GOLD in html
+
+    def test_html_uses_ibm_plex_sans(self):
+        _, html, _ = self._build()
+        assert IBM_PLEX in html
+
+    def test_html_uses_dm_serif_display(self):
+        _, html, _ = self._build()
+        assert DM_SERIF in html
+
+    def test_html_uses_dm_mono(self):
+        _, html, _ = self._build()
+        assert DM_MONO in html
+
+    def test_html_table_layout_not_just_divs(self):
+        """Email should use table-based layout for email-client compatibility."""
+        _, html, _ = self._build()
+        assert "<table" in html
+
+    # ── Paper cards ───────────────────────────────────────────────────────
+
+    def test_paper_cards_show_score(self):
+        """Preview paper cards must show relevance/global score."""
+        _, html, _ = self._build()
+        # Score is rendered — check for score value from make_paper fixture (50.0)
+        assert "50" in html
+
+    def test_paper_cards_show_abstract_or_summary(self):
+        _, html, _ = self._build()
+        assert "stellar evolution" in html
+
+    def test_paper_cards_show_arxiv_link(self):
+        _, html, _ = self._build()
+        assert "arxiv.org" in html
+
+    def test_paper_cards_show_authors(self):
+        _, html, _ = self._build()
+        assert "Author A" in html
+
+    # ── Structure ─────────────────────────────────────────────────────────
+
+    def test_html_is_valid_doctype(self):
+        _, html, _ = self._build()
+        assert html.strip().startswith("<!DOCTYPE html>")
+
+    def test_cancel_button_still_present(self):
+        _, html, _ = self._build()
+        assert "cancel_send" in html
+        assert "CANCEL MONDAY SEND" in html
+
+    def test_pine_header_bar_present(self):
+        """Preview header bar should use the pine background colour."""
+        _, html, _ = self._build()
+        # Background pine colour used in the header bar
+        assert f"background:{BRAND_PINE}" in html or f"background: {BRAND_PINE}" in html
+
+    def test_singular_subscriber_count(self):
+        """1 subscriber: 'will receive this' (not 'subscribers')."""
+        _, html, _ = self._build(subscriber_count=1)
+        assert "1 subscriber will receive this" in html
+
+
+class TestBrandedDigestEmail:
+    """Student digest email must use branded styling."""
+
+    def setup_method(self):
+        self.papers = [make_paper(i) for i in range(3)]
+
+    def _build(self):
+        return build_personalized_digest_email(
+            self.papers, ["stars", "exoplanets"], WEEK, UNSUB_URL, MANAGE_URL
+        )
+
+    # ── Branded CSS / typography ───────────────────────────────────────────
+
+    def test_html_uses_pine_colour(self):
+        _, html, _ = self._build()
+        assert BRAND_PINE in html
+
+    def test_html_uses_gold_colour(self):
+        _, html, _ = self._build()
+        assert BRAND_GOLD in html
+
+    def test_html_uses_ibm_plex_sans(self):
+        _, html, _ = self._build()
+        assert IBM_PLEX in html
+
+    def test_html_uses_dm_serif_display(self):
+        _, html, _ = self._build()
+        assert DM_SERIF in html
+
+    def test_html_uses_dm_mono(self):
+        _, html, _ = self._build()
+        assert DM_MONO in html
+
+    def test_pine_header_bar_present(self):
+        _, html, _ = self._build()
+        assert f"background:{BRAND_PINE}" in html or f"background: {BRAND_PINE}" in html
+
+    # ── Paper cards ───────────────────────────────────────────────────────
+
+    def test_paper_title_in_card(self):
+        _, html, _ = self._build()
+        assert "Test paper 1" in html
+
+    def test_arxiv_link_in_card(self):
+        _, html, _ = self._build()
+        assert "arxiv.org" in html
+
+    def test_authors_in_card(self):
+        _, html, _ = self._build()
+        assert "Author A" in html
+
+    def test_table_layout(self):
+        _, html, _ = self._build()
+        assert "<table" in html
+
+    # ── Footer links ─────────────────────────────────────────────────────
+
+    def test_unsubscribe_link_present(self):
+        _, html, _ = self._build()
+        assert UNSUB_URL in html
+
+    def test_manage_link_present(self):
+        _, html, _ = self._build()
+        assert MANAGE_URL in html
+
+    def test_no_cancel_button_in_digest(self):
+        """Digest email (student copy) must NOT contain a CANCEL button."""
+        _, html, _ = self._build()
+        assert "CANCEL MONDAY SEND" not in html
