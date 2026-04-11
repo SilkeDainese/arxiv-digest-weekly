@@ -1,59 +1,23 @@
 rules_version = '2';
 
 // Firestore Security Rules — arxiv-digest-weekly
-// Cerberus-authored. Last reviewed: 2026-04-10
+// Cerberus-authored. Last reviewed: 2026-04-11
 //
 // Design principles:
-//   1. Public can ONLY create new subscriber documents (signup flow)
-//   2. Public CANNOT read, update, or delete any document
-//   3. All operational access (read/write/delete) is service-account-only
-//      (Cloud Functions run under a service account — they bypass client rules)
-//   4. Signup field whitelist prevents injection of arbitrary data
-//   5. Email format check provides basic validation
-//   6. Topics array is validated against a fixed whitelist
+//   1. NO public client-side access to any collection.
+//      Signup now goes through the `subscribe` Cloud Function (HTTP POST),
+//      which runs under a service account and bypasses these rules entirely.
+//   2. All reads/writes are service-account-only (Cloud Functions).
+//   3. Zero Firebase JS SDK writes — eliminates the entire client-side attack surface.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── /subscribers/{docId} ────────────────────────────────────────────
-    // Public: create only (signup form via Firebase JS SDK)
-    // All other operations: service account only (functions bypass these rules)
+    // All access via service account (Cloud Functions) only.
+    // No client-side reads or writes permitted.
     match /subscribers/{docId} {
-
-      // Allow public signup — strictly validated
-      allow create: if
-        // Only the whitelisted fields may be present
-        request.resource.data.keys().hasOnly(["email", "topics", "created_at"])
-
-        // email: required, string, max 254 chars, basic format check
-        && "email" in request.resource.data
-        && request.resource.data.email is string
-        && request.resource.data.email.size() > 5
-        && request.resource.data.email.size() <= 254
-        && request.resource.data.email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
-
-        // topics: required, non-empty array, each element from whitelist, max 8
-        && "topics" in request.resource.data
-        && request.resource.data.topics is list
-        && request.resource.data.topics.size() >= 1
-        && request.resource.data.topics.size() <= 8
-        && request.resource.data.topics.hasOnly([
-             "stars",
-             "exoplanets",
-             "galaxies",
-             "cosmology",
-             "high_energy",
-             "instrumentation",
-             "solar_helio",
-             "methods_ml"
-           ])
-
-        // created_at: required, must be a timestamp
-        && "created_at" in request.resource.data
-        && request.resource.data.created_at is timestamp;
-
-      // No public read, update, or delete
-      allow read, update, delete: if false;
+      allow read, write: if false;
     }
 
     // ── /pending_digest/{weekIso} ────────────────────────────────────────

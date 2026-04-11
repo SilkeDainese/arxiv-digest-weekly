@@ -45,8 +45,12 @@ def sent_log_col():
 # ── Subscriber helpers ─────────────────────────────────────────────────────
 
 def get_all_subscribers() -> list[dict[str, Any]]:
-    """Return all subscriber documents as dicts (includes doc_id)."""
-    docs = subscribers_col().stream()
+    """Return all verified subscriber documents as dicts (includes doc_id).
+
+    Only returns docs where verified=True — unverified (pending confirmation)
+    docs are excluded so they don't receive digests.
+    """
+    docs = subscribers_col().where("verified", "==", True).stream()
     result = []
     for doc in docs:
         data = doc.to_dict()
