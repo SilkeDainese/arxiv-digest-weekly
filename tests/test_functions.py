@@ -340,6 +340,35 @@ class TestSendDigestFunction:
 
     @patch("functions.mailer.main.current_week_iso", return_value=WEEK)
     @patch("functions.mailer.main.get_hmac_secret", return_value=SECRET)
+    @patch("functions.mailer.main.get_pending_digest")
+    @patch("functions.mailer.main.get_all_subscribers")
+    @patch("functions.mailer.main.send_message")
+    @patch("functions.mailer.main.log_sent")
+    @patch("functions.mailer.main.update_subscriber_last_sent")
+    @patch("functions.mailer.main.build_personalized_digest")
+    def test_max_papers_respected_per_subscriber(
+        self, mock_build, mock_update, mock_log, mock_send, mock_subs, mock_pending, mock_secret, mock_week
+    ):
+        """Subscriber's max_papers setting is passed to build_personalized_digest."""
+        papers = [make_paper(i) for i in range(5)]
+        mock_pending.return_value = {"papers": papers, "hold_monday_send": False}
+        subscriber = {**make_subscriber(), "max_papers": 3}
+        mock_subs.return_value = [subscriber]
+        mock_build.return_value = papers[:3]
+
+        from functions.mailer.main import send_digest
+        send_digest(self._make_request())
+
+        # Verify build_personalized_digest was called with the subscriber's max_papers=3
+        mock_build.assert_called_once()
+        _, kwargs = mock_build.call_args
+        assert kwargs.get("max_papers") == 3, (
+            f"Expected max_papers=3, got {kwargs.get('max_papers')} — "
+            "mailer must pass subscriber's max_papers to build_personalized_digest"
+        )
+
+    @patch("functions.mailer.main.current_week_iso", return_value=WEEK)
+    @patch("functions.mailer.main.get_hmac_secret", return_value=SECRET)
     @patch("functions.mailer.main.get_pending_digest", return_value=None)
     def test_missing_pending_digest_returns_500(self, mock_pending, mock_secret, mock_week):
         from functions.mailer.main import send_digest

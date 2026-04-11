@@ -133,8 +133,9 @@ def send_digest(request):
         unsub_url = f"{unsub_base}?t={unsub_token}"
         manage_url = f"{manage_base}?t={manage_token}"
 
-        # Build personalized paper list
-        personalized_papers = build_personalized_digest(papers, topics)
+        # Build personalized paper list (respecting subscriber's max_papers preference)
+        max_papers = int(sub.get("max_papers") or 6)
+        personalized_papers = build_personalized_digest(papers, topics, max_papers=max_papers)
 
         subject, html_body, text_body = build_personalized_digest_email(
             papers=personalized_papers,
