@@ -290,3 +290,74 @@ class TestScoreFloorQualityGate:
         }
         ok, reason = validate_paper_quality(paper)
         assert ok is True, f"Expected keyword paper with score>0 to pass, got: {reason!r}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint 4: Quality-gate ceiling — reject oversize summaries
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSummaryCeilingQualityGate:
+    """Change 3: plain_summary > 320 chars must be rejected by the quality gate."""
+
+    def _make_ai_paper(self, summary: str) -> dict:
+        return {
+            "id": "2501.99999",
+            "title": "Stellar evolution test paper",
+            "plain_summary": summary,
+            "highlight_phrase": "stellar test result here",
+            "ai_score": 7.0,
+            "score_tier": "ai",
+            "subscriber_score": 50.0,
+        }
+
+    def test_summary_exactly_320_chars_passes(self):
+        """Boundary: 320 chars is within the ceiling and must pass."""
+        summary = "A" * 319 + "."   # 320 chars total, valid sentence
+        paper = self._make_ai_paper(summary)
+        ok, reason = validate_paper_quality(paper)
+        assert ok is True, f"Expected 320-char summary to pass, got: {reason!r}"
+
+    def test_summary_321_chars_fails(self):
+        """One char over ceiling must fail."""
+        summary = "A" * 320 + "."   # 321 chars total
+        paper = self._make_ai_paper(summary)
+        ok, reason = validate_paper_quality(paper)
+        assert ok is False, "Expected 321-char summary to fail quality gate"
+        assert "too long" in reason.lower(), (
+            f"Failure reason should mention 'too long', got: {reason!r}"
+        )
+
+    def test_summary_321_chars_reason_mentions_char_count(self):
+        """Failure reason must include the actual char count and ceiling."""
+        summary = "A" * 320 + "."   # 321 chars
+        paper = self._make_ai_paper(summary)
+        ok, reason = validate_paper_quality(paper)
+        assert "321" in reason, f"Reason should mention 321 chars, got: {reason!r}"
+
+    def test_clean_200_char_summary_passes(self):
+        """A well-formed 200-char summary must pass ceiling and floor checks."""
+        summary = "New ML approach for stellar Teff — synthetic MARCS training, recovers within 50K on APOGEE. Struggles below [Fe/H] = -2 but solid across main sequence targets."
+        assert 40 <= len(summary) <= 320
+        paper = self._make_ai_paper(summary)
+        ok, reason = validate_paper_quality(paper)
+        assert ok is True, f"Expected clean summary to pass, got: {reason!r}"
+
+    def test_ceiling_check_does_not_break_existing_floor_check(self):
+        """Ceiling check must not suppress the existing floor check (< 40 chars)."""
+        short_summary = "Too short."   # 10 chars — below floor
+        paper = self._make_ai_paper(short_summary)
+        ok, reason = validate_paper_quality(paper)
+        assert ok is False
+        assert "too short" in reason.lower() or "minimum" in reason.lower(), (
+            f"Floor check lost, got: {reason!r}"
+        )
+
+    def test_ceiling_check_does_not_break_existing_banned_opener_check(self):
+        """Ceiling check must not suppress banned-opener check."""
+        banned_summary = "We present a new method for stellar masses using asteroseismology. Works well."
+        paper = self._make_ai_paper(banned_summary)
+        ok, reason = validate_paper_quality(paper)
+        assert ok is False
+        assert "banned" in reason.lower() or "opener" in reason.lower(), (
+            f"Banned-opener check lost, got: {reason!r}"
+        )

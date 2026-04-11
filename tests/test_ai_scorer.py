@@ -510,3 +510,100 @@ class TestEmailBuilderIntegration:
             [paper], ["stars"], WEEK, UNSUB_URL, MANAGE_URL
         )
         assert "Abstract content shown as fallback." in html
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint 4: Model upgrade + prompt fix
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestGeminiProModelUpgrade:
+    """Change 1: Gemini tier must call gemini-2.5-pro, not gemini-2.5-flash."""
+
+    def _make_gemini_response(self, score: int = 7) -> MagicMock:
+        payload = {
+            "relevance_score": score,
+            "plain_summary": "Direct radii measurements via CHARA array — benchmarks five interferometric surveys.",
+            "highlight_phrase": "CHARA array benchmarks five surveys",
+        }
+        mock_resp = MagicMock()
+        mock_resp.text = json.dumps(payload)
+        return mock_resp
+
+    def test_gemini_calls_use_pro_model(self):
+        """_score_with_gemini must call model='gemini-2.5-pro', not gemini-2.5-flash."""
+        papers = [make_paper()]
+        mock_gemini_client = MagicMock()
+        mock_gemini_client.models.generate_content.return_value = self._make_gemini_response()
+
+        with patch("shared.ai_scorer._get_anthropic_key", return_value=None), \
+             patch("shared.ai_scorer._get_gemini_client", return_value=mock_gemini_client):
+            score_papers_with_ai(papers)
+
+        call_args = mock_gemini_client.models.generate_content.call_args
+        assert call_args is not None, "generate_content was not called"
+        # model kwarg must be gemini-2.5-pro
+        model_used = call_args.kwargs.get("model") or (call_args.args[0] if call_args.args else None)
+        assert model_used == "gemini-2.5-pro", (
+            f"Expected gemini-2.5-pro, got: {model_used!r}"
+        )
+
+    def test_gemini_does_not_use_flash_model(self):
+        """Ensure flash model string is absent from the generate_content call."""
+        papers = [make_paper()]
+        mock_gemini_client = MagicMock()
+        mock_gemini_client.models.generate_content.return_value = self._make_gemini_response()
+
+        with patch("shared.ai_scorer._get_anthropic_key", return_value=None), \
+             patch("shared.ai_scorer._get_gemini_client", return_value=mock_gemini_client):
+            score_papers_with_ai(papers)
+
+        call_args = mock_gemini_client.models.generate_content.call_args
+        model_used = call_args.kwargs.get("model") or (call_args.args[0] if call_args.args else None)
+        assert "flash" not in str(model_used).lower(), (
+            f"Flash model still referenced: {model_used!r}"
+        )
+
+
+class TestPromptHardLimitFix:
+    """Change 2: _build_prompt must contain the HARD LIMIT 280 char instruction
+    and the EXAMPLE anchor."""
+
+    def test_prompt_contains_hard_limit_instruction(self):
+        from shared.ai_scorer import _build_prompt
+        paper = make_paper()
+        prompt = _build_prompt(paper)
+        assert "HARD LIMIT: max 280 characters" in prompt, (
+            "Prompt missing HARD LIMIT instruction"
+        )
+
+    def test_prompt_contains_example_length_anchor(self):
+        from shared.ai_scorer import _build_prompt
+        paper = make_paper()
+        prompt = _build_prompt(paper)
+        assert "Match the EXAMPLE's length and rhythm exactly" in prompt, (
+            "Prompt missing EXAMPLE length anchor instruction"
+        )
+
+    def test_prompt_example_references_145_chars(self):
+        from shared.ai_scorer import _build_prompt
+        paper = make_paper()
+        prompt = _build_prompt(paper)
+        assert "~145 chars" in prompt, (
+            "Prompt example does not reference ~145 chars"
+        )
+
+    def test_prompt_preserves_banned_opener_we_present(self):
+        from shared.ai_scorer import _build_prompt
+        paper = make_paper()
+        prompt = _build_prompt(paper)
+        assert "We present" in prompt or "we present" in prompt.lower(), (
+            "Prompt lost the 'We present' banned opener"
+        )
+
+    def test_prompt_preserves_banned_opener_in_this_paper(self):
+        from shared.ai_scorer import _build_prompt
+        paper = make_paper()
+        prompt = _build_prompt(paper)
+        assert "In this paper" in prompt or "in this paper" in prompt.lower(), (
+            "Prompt lost the 'In this paper' banned opener"
+        )

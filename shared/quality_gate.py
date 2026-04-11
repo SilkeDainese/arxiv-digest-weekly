@@ -22,6 +22,9 @@ from shared.ai_scorer import BANNED_OPENERS
 # Minimum character length for a plain_summary to be considered non-stub
 _MIN_SUMMARY_LENGTH = 40
 
+# Maximum character length for a plain_summary — enforces the HARD LIMIT from the prompt
+_MAX_SUMMARY_LENGTH = 320
+
 # AI relevance floor — papers rated below this are not sent to students
 _AI_SCORE_FLOOR = 3.0
 
@@ -60,6 +63,11 @@ def validate_paper_quality(paper: dict) -> tuple[bool, str]:
             failures.append(
                 f"paper {paper_id}: plain_summary is too short "
                 f"({len(summary_str)} chars, minimum {_MIN_SUMMARY_LENGTH})"
+            )
+        if len(summary_str) > _MAX_SUMMARY_LENGTH:
+            failures.append(
+                f"paper {paper_id}: plain_summary too long: "
+                f"{len(summary_str)} chars exceeds {_MAX_SUMMARY_LENGTH} ceiling"
             )
         if _starts_with_banned_opener(summary_str):
             failures.append(

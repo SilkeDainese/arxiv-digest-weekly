@@ -189,7 +189,7 @@ Abstract: {clean_abstract}
 Respond with ONLY a valid JSON object (no markdown, no backticks):
 {{
   "relevance_score": <integer 1-10>,
-  "plain_summary": "<2-3 sentences written peer-to-peer, as one scientist summarising for another — lead with the result or method, not the researchers. NEVER start with any of these openers: 'We', 'We present', 'We show', 'We propose', 'We investigate', 'We find', 'We explore', 'We describe', 'We analyze', 'We analyse', 'We demonstrate', 'We report', 'We study', 'In this paper', 'In this work', 'Here we', 'This work', 'Researchers', 'The authors', 'This paper', 'A team', 'Scientists', 'Authors', 'The researchers'. Assume domain knowledge. Example good style: 'New ML approach for stellar Teff from high-res spectra — synthetic MARCS training, recovers within 50K on APOGEE benchmarks. Struggles below [Fe/H] = -2.'>",
+  "plain_summary": "<HARD LIMIT: max 280 characters. 1-2 punchy sentences, or 1 sentence with em-dash clauses. Peer-to-peer shorthand, as one scientist nudging another. Lead with the result or method. Use concrete numbers, technical abbreviations, em-dashes for clause separation. Do NOT mimic the abstract's formal prose. Match the EXAMPLE's length and rhythm exactly. NEVER start with any of these openers: 'We', 'We present', 'We show', 'We propose', 'We investigate', 'We find', 'We explore', 'We describe', 'We analyze', 'We analyse', 'We demonstrate', 'We report', 'We study', 'In this paper', 'In this work', 'Here we', 'This work', 'Researchers', 'The authors', 'This paper', 'A team', 'Scientists', 'Authors', 'The researchers'. Assume domain knowledge. EXAMPLE (match this length and style exactly, ~145 chars): 'New ML approach for stellar Teff from high-res spectra — synthetic MARCS training, recovers within 50K on APOGEE benchmarks. Struggles below [Fe/H] = -2.'>",
   "highlight_phrase": "<punchy 5-8 word headline, no trailing punctuation>"
 }}
 
@@ -246,7 +246,7 @@ def _get_gemini_client(api_key: str | None = None):
         return google_genai.Client(
             vertexai=True,
             project=gcp_project,
-            location="europe-west1",
+            location="us-central1",
         )
     except Exception as exc:
         logger.debug("Vertex AI Gemini client init failed: %s", exc)
@@ -420,7 +420,7 @@ def _score_with_gemini(
         prompt = _build_prompt(paper)
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-pro",
                 contents=prompt,
             )
             text = response.text.strip()
