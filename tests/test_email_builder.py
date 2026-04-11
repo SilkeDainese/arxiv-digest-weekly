@@ -290,7 +290,7 @@ class TestStaticPages:
     def test_unsubscribe_page_is_valid_html(self):
         html = build_unsubscribe_page()
         assert "<!DOCTYPE html>" in html
-        assert "removed" in html.lower()
+        assert "unsubscribed" in html.lower()  # new design: "You've been unsubscribed"
 
     def test_unsubscribe_page_contains_signup_link(self):
         html = build_unsubscribe_page(signup_url="https://example.com/signup")
@@ -335,9 +335,9 @@ class TestStaticPages:
 # not the generic plain-HTML stub.
 # ─────────────────────────────────────────────────────────────────────────────
 
-BRAND_PINE = "#2F4F3E"
+BRAND_PINE = "#2C5530"   # Updated to spec value (was #2F4F3E)
 BRAND_GOLD = "#EBC944"
-BRAND_ASH_WHITE = "#F6F5F2"
+BRAND_ASH_WHITE = "#F5F3EE"  # Updated to spec value (was #F6F5F2)
 IBM_PLEX = "IBM Plex Sans"
 DM_SERIF = "DM Serif Display"
 DM_MONO = "DM Mono"

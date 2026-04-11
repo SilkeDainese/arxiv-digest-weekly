@@ -1,23 +1,20 @@
 <!DOCTYPE html>
 <!--
-  Weekly arXiv Digest — Signup Page
+  AU student digest — Signup Page
   Deployed to: silkedainese.github.io/arxiv-digest/
 
-  Design decisions:
-  - No Firebase JS SDK: form POSTs to the `subscribe` Cloud Function directly.
-    No third-party JS loaded at all — zero CDN calls, zero GDPR surface.
-  - Fonts self-hosted from infra/fonts/ — no Google Fonts CDN (would leak visitor IP).
-  - Double opt-in: form submission writes verified:false + sends confirmation email.
-    Firestore doc only becomes active when the confirmation link is clicked.
-  - GDPR floor per CJEU Planet49: single-purpose form, button label IS the consent,
-    3-line small-print notice, no cookies, no analytics, no localStorage.
-  - Data controller: Silke Dainese, silke.dainese@phys.au.dk, Aarhus University
+  Design: pine green header, warm cream background, paper preview card,
+  8 topic checkboxes, max-papers stepper, inline subscribed state.
+
+  No external JS or Firebase SDK. Pure fetch() POST to Cloud Function.
+  Self-hosted fonts from infra/fonts/.
+  No cookies. No analytics. No localStorage.
 -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Weekly arXiv Digest</title>
+  <title>AU student digest — Weekly arXiv papers</title>
 
   <style>
     /* ── Self-hosted fonts ───────────────────────────────────────────────── */
@@ -43,91 +40,140 @@
       src: url('fonts/ibm-plex-sans-500.woff2') format('woff2');
     }
 
-    /* ── Brand tokens ────────────────────────────────────────────────────── */
+    /* ── Design tokens ───────────────────────────────────────────────────── */
     :root {
-      --pine:     #2C5530;
-      --gold:     #C8973E;
-      --charcoal: #2D2D2D;
-      --bg:       #FAFAF8;
-      --muted:    #666;
-      --border:   #D4D0C8;
+      --pine:    #2C5530;
+      --pine-dk: #224228;
+      --cream:   #F5F3EE;
+      --card:    #EDEBE6;
+      --charcoal:#2B2B2B;
+      --muted:   #666;
+      --border:  #D8D4CA;
+      --rust:    #A0522D;
+      --gold:    #C8973E;
+      --error:   #C0392B;
     }
 
-    /* ── Reset & base ────────────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; }
+    /* ── Reset ───────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── Page shell ──────────────────────────────────────────────────────── */
     body {
-      font-family: 'IBM Plex Sans', system-ui, sans-serif;
-      font-weight: 400;
-      background: var(--bg);
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   Helvetica, Arial, sans-serif;
+      background: var(--cream);
       color: var(--charcoal);
-      margin: 0;
-      padding: 0;
-      min-height: 100dvh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      min-height: 100vh;
     }
 
-    /* ── Card ────────────────────────────────────────────────────────────── */
-    .card {
-      width: 100%;
+    /* ── Header bar ──────────────────────────────────────────────────────── */
+    .header {
+      background: var(--pine);
+      color: white;
+      padding: 13px 20px;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Page content ────────────────────────────────────────────────────── */
+    .page {
       max-width: 480px;
-      padding: 48px 40px 36px;
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin: 24px 16px;
+      margin: 0 auto;
+      padding: 28px 20px 56px;
     }
 
-    @media (max-width: 520px) {
-      .card {
-        padding: 36px 24px 28px;
-        margin: 16px 12px;
-        border: none;
-        background: transparent;
-      }
-    }
-
-    /* ── Typography ──────────────────────────────────────────────────────── */
-    h1 {
+    /* ── Hero heading ────────────────────────────────────────────────────── */
+    .hero-heading {
       font-family: 'DM Serif Display', Georgia, serif;
+      font-size: clamp(26px, 6vw, 34px);
       font-weight: 400;
-      font-size: clamp(26px, 5vw, 32px);
-      color: var(--pine);
-      margin: 0 0 16px;
-      line-height: 1.2;
+      color: var(--charcoal);
+      margin-bottom: 8px;
+      line-height: 1.15;
+    }
+    .hero-sub {
+      font-size: 15px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 24px;
     }
 
-    .description {
-      font-size: 16px;
-      line-height: 1.6;
-      color: var(--charcoal);
-      margin: 0 0 28px;
+    /* ── Preview card ────────────────────────────────────────────────────── */
+    .preview-card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 28px;
     }
+    .preview-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #999;
+      margin-bottom: 14px;
+    }
+    .paper-entry {
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .paper-entry:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+      margin-bottom: 0;
+    }
+    .paper-tag {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .paper-title {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: 15px;
+      color: var(--charcoal);
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    .paper-summary {
+      font-size: 13px;
+      color: #555;
+      line-height: 1.5;
+      margin-bottom: 6px;
+    }
+    .paper-meta {
+      font-size: 11px;
+      color: #999;
+    }
+    .paper-meta a {
+      color: var(--pine);
+      text-decoration: none;
+    }
+    .paper-meta a:hover { text-decoration: underline; }
 
     /* ── Form ────────────────────────────────────────────────────────────── */
-    .field {
-      margin-bottom: 16px;
-    }
-
-    label {
+    .form-label {
       display: block;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       color: var(--charcoal);
       margin-bottom: 6px;
     }
-
     input[type="email"] {
+      display: block;
       width: 100%;
       padding: 11px 14px;
-      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 15px;
       color: var(--charcoal);
-      background: #fff;
+      background: white;
       border: 1.5px solid var(--border);
-      border-radius: 4px;
+      border-radius: 8px;
+      margin-bottom: 20px;
       appearance: none;
       -webkit-appearance: none;
       transition: border-color 0.15s;
@@ -136,202 +182,448 @@
       outline: none;
       border-color: var(--pine);
     }
-    input[type="email"]::placeholder {
-      color: #AAA;
+    input[type="email"]::placeholder { color: #AAA; }
+
+    /* ── Category section ────────────────────────────────────────────────── */
+    .section-head {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--charcoal);
+      margin-bottom: 8px;
+    }
+    .checkboxes-wrap {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 0 16px;
+      margin-bottom: 16px;
+    }
+    label.cb-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 0;
+      font-size: 14px;
+      color: var(--charcoal);
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    label.cb-row:last-child { border-bottom: none; }
+    label.cb-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--pine);
+      flex-shrink: 0;
+      cursor: pointer;
     }
 
-    button[type="submit"] {
+    /* ── Stepper row ─────────────────────────────────────────────────────── */
+    .stepper-wrap {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 0 16px;
+      margin-bottom: 20px;
+    }
+    .stepper-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+    .stepper-label { font-size: 14px; color: var(--charcoal); }
+    .stepper {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .stepper-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: white;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      padding: 0;
+      color: var(--charcoal);
+      transition: border-color 0.12s;
+    }
+    .stepper-btn:hover { border-color: var(--pine); }
+
+    .stepper-val {
+      font-size: 16px;
+      font-weight: 500;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    /* ── Button ──────────────────────────────────────────────────────────── */
+    .btn-subscribe {
       display: block;
       width: 100%;
-      padding: 13px 20px;
-      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      padding: 14px 20px;
+      font-family: 'IBM Plex Sans', sans-serif;
       font-size: 15px;
       font-weight: 500;
-      color: #fff;
+      color: white;
       background: var(--pine);
       border: none;
-      border-radius: 4px;
+      border-radius: 8px;
       cursor: pointer;
+      text-align: center;
       transition: background 0.15s;
-      margin-top: 4px;
     }
-    button[type="submit"]:hover:not(:disabled) {
-      background: #224228;
-    }
-    button[type="submit"]:focus-visible {
+    .btn-subscribe:hover:not(:disabled) { background: var(--pine-dk); }
+    .btn-subscribe:focus-visible {
       outline: 3px solid var(--gold);
       outline-offset: 2px;
     }
-    button[type="submit"]:disabled {
-      background: #8aab8d;
-      cursor: default;
-    }
+    .btn-subscribe:disabled { background: #8aab8d; cursor: default; }
 
-    /* ── States ──────────────────────────────────────────────────────────── */
+    /* ── Error ───────────────────────────────────────────────────────────── */
     .error-msg {
-      font-size: 14px;
-      color: #B94040;
-      margin: 10px 0 0;
       display: none;
+      background: #FFF0F0;
+      border: 1px solid #F5ABAB;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--error);
+      margin-bottom: 12px;
     }
-    .error-msg.visible {
-      display: block;
-    }
-
-    .success-state {
-      display: none;
-    }
-    .success-state.visible {
-      display: block;
-    }
-
-    .success-box {
-      background: #EEF5EF;
-      border: 1px solid #8FAF92;
-      border-radius: 4px;
-      padding: 18px 20px;
-      font-size: 15px;
-      line-height: 1.55;
-      color: var(--charcoal);
-    }
-    .success-box strong {
-      color: var(--pine);
-    }
+    .error-msg.visible { display: block; }
 
     /* ── Small print ─────────────────────────────────────────────────────── */
     .small-print {
-      margin-top: 24px;
-      font-size: 12.5px;
+      font-size: 12px;
+      color: #AAA;
       line-height: 1.55;
+      margin-top: 14px;
+      text-align: center;
+    }
+
+    /* ── Success state ───────────────────────────────────────────────────── */
+    .success-state { display: none; }
+    .success-state.visible { display: block; }
+    .success-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 32px auto 20px;
+      font-size: 30px;
+      color: var(--pine);
+    }
+    .success-heading {
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-size: 28px;
+      font-weight: 400;
+      color: var(--charcoal);
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .success-sub {
+      font-size: 15px;
       color: var(--muted);
-      border-top: 1px solid var(--border);
-      padding-top: 18px;
+      text-align: center;
+      line-height: 1.55;
+      margin-bottom: 20px;
     }
-    .small-print a {
-      color: var(--muted);
+    .success-card {
+      background: var(--card);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
     }
-    .small-print .byline {
-      margin-top: 10px;
-      font-style: italic;
+    .success-card-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: #999;
+      margin-bottom: 8px;
     }
+    .success-card-topics {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--charcoal);
+      margin-bottom: 4px;
+    }
+    .success-card-muted {
+      font-size: 13px;
+      color: #888;
+    }
+    .success-manage-link {
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+    }
+    .success-manage-link a { color: var(--pine); text-decoration: underline; }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    .footer-credit {
+      font-size: 12px;
+      color: #AAA;
+      text-align: center;
+      margin-top: 40px;
+    }
+    .footer-credit a { color: #AAA; }
   </style>
 </head>
 <body>
 
-  <main class="card" role="main">
+  <!-- Header bar -->
+  <div class="header">AU student digest</div>
 
-    <h1>Weekly arXiv Digest</h1>
-
-    <p class="description">
-      A curated weekly email of the most relevant new astronomy papers,
-      with plain-language summaries.
-    </p>
+  <div class="page">
 
     <!-- ── Signup form ─────────────────────────────────────────────────── -->
-    <form id="signup-form" novalidate>
+    <div id="signup-section">
 
-      <div class="field">
-        <label for="email">Your email</label>
+      <h1 class="hero-heading">Weekly arXiv papers, curated for you.</h1>
+      <p class="hero-sub">
+        A weekly digest of the most relevant new astronomy papers,
+        with plain-language summaries. Every Monday morning.
+      </p>
+
+      <!-- Paper preview -->
+      <div class="preview-card">
+        <div class="preview-label">Preview</div>
+
+        <div class="paper-entry">
+          <div class="paper-tag">Stars &middot; astro-ph.SR</div>
+          <div class="paper-title">Magnetic activity cycles in solar-type stars across the main sequence</div>
+          <div class="paper-summary">A new survey of 847 FGK dwarfs finds that magnetic cycle periods scale with rotation, with a secondary population of flat-activity stars that may be in a Maunder-like minimum.</div>
+          <div class="paper-meta">
+            Lindqvist et al. &middot; Apr 2025 &middot;
+            <a href="#" onclick="return false">Read on arXiv &rarr;</a>
+          </div>
+        </div>
+
+        <div class="paper-entry">
+          <div class="paper-tag">Exoplanets &middot; astro-ph.EP</div>
+          <div class="paper-title">Atmospheric escape rates in sub-Neptune planets orbiting M dwarfs</div>
+          <div class="paper-summary">Using UV transit observations, the authors measure helium outflow in six sub-Neptunes and find that XUV flux dominates over stellar wind in driving mass loss at short periods.</div>
+          <div class="paper-meta">
+            S&oslash;rensen &amp; Park et al. &middot; Apr 2025 &middot;
+            <a href="#" onclick="return false">Read on arXiv &rarr;</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form id="signup-form" novalidate>
+
+        <label class="form-label" for="email">Email</label>
         <input
           type="email"
           id="email"
           name="email"
-          placeholder="you@example.com"
+          placeholder="au000000@uni.au.dk"
           autocomplete="email"
           required
           aria-describedby="error-msg"
         >
-      </div>
 
-      <div class="error-msg" id="error-msg" role="alert" aria-live="polite"></div>
+        <p class="section-head">Pick your categories</p>
+        <div class="checkboxes-wrap">
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="exoplanets">
+            Planets &amp; exoplanets
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="stars">
+            Stars
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="galaxies">
+            Galaxies
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="cosmology">
+            Cosmology
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="high_energy">
+            High-energy astrophysics
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="instrumentation">
+            Instrumentation
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="solar_helio">
+            Solar &amp; heliophysics
+          </label>
+          <label class="cb-row">
+            <input type="checkbox" name="topics" value="methods_ml">
+            Methods &amp; machine learning
+          </label>
+        </div>
 
-      <button type="submit" id="submit-btn">
-        Subscribe to the weekly arXiv Digest
-      </button>
+        <!-- Max papers stepper -->
+        <div class="stepper-wrap">
+          <div class="stepper-row">
+            <span class="stepper-label">Max papers per week</span>
+            <div class="stepper">
+              <button type="button" class="stepper-btn" id="btn-minus" aria-label="Decrease">&#8722;</button>
+              <span class="stepper-val" id="papers-display">6</span>
+              <button type="button" class="stepper-btn" id="btn-plus" aria-label="Increase">&#43;</button>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" id="max-papers-input" value="6">
 
-    </form>
+        <div class="error-msg" id="error-msg" role="alert" aria-live="polite"></div>
 
-    <!-- ── Success state (shown after form submit) ─────────────────────── -->
+        <button type="submit" class="btn-subscribe" id="submit-btn">
+          Subscribe
+        </button>
+
+        <p class="small-print">
+          You can change settings or unsubscribe anytime from your digest email.
+        </p>
+
+      </form>
+    </div>
+
+    <!-- ── Success / subscribed state ─────────────────────────────────── -->
     <div class="success-state" id="success-state" role="status" aria-live="polite">
-      <div class="success-box">
-        <strong>Check your inbox</strong> — we've sent you a confirmation link.
-        Click it to activate your subscription.
+      <div class="success-icon">&#10003;</div>
+      <h2 class="success-heading">You're subscribed!</h2>
+      <p class="success-sub">
+        Your weekly arXiv digest will arrive every Monday at
+        <span id="success-email"></span>.
+      </p>
+      <div class="success-card">
+        <div class="success-card-label">Your categories</div>
+        <div class="success-card-topics" id="success-topics"></div>
+        <div class="success-card-muted" id="success-max"></div>
       </div>
+      <p class="success-manage-link">
+        Want to change something?
+        <a href="#" id="success-manage-link">Update your settings.</a>
+      </p>
     </div>
 
-    <!-- ── Small print / privacy notice ──────────────────────────────────── -->
-    <div class="small-print">
-      Your email is only used to send this digest.
-      One-click unsubscribe in every email.
-      <div class="byline">
-        — Silke Dainese, Aarhus University &middot;
-        <a href="mailto:silke.dainese@phys.au.dk">silke.dainese@phys.au.dk</a>
-      </div>
+    <!-- Footer -->
+    <div class="footer-credit">
+      Made by <a href="mailto:dainese@phys.au.dk">Silke Dainese</a>
+      &middot; dainese@phys.au.dk
     </div>
 
-  </main>
+  </div><!-- /.page -->
 
   <script>
-    // No external scripts loaded. No cookies. No analytics. No localStorage.
+    // No external scripts. No cookies. No analytics.
 
     const SUBSCRIBE_URL = "https://europe-west1-silke-hub.cloudfunctions.net/subscribe";
 
-    const form       = document.getElementById("signup-form");
-    const emailInput = document.getElementById("email");
-    const errorMsg   = document.getElementById("error-msg");
-    const submitBtn  = document.getElementById("submit-btn");
-    const successState = document.getElementById("success-state");
+    const TOPIC_LABELS = {
+      exoplanets:      "Planets & exoplanets",
+      stars:           "Stars",
+      galaxies:        "Galaxies",
+      cosmology:       "Cosmology",
+      high_energy:     "High-energy astrophysics",
+      instrumentation: "Instrumentation",
+      solar_helio:     "Solar & heliophysics",
+      methods_ml:      "Methods & machine learning",
+    };
 
+    // ── Elements ──────────────────────────────────────────────────────────
+    const form          = document.getElementById("signup-form");
+    const emailInput    = document.getElementById("email");
+    const errorMsg      = document.getElementById("error-msg");
+    const submitBtn     = document.getElementById("submit-btn");
+    const signupSection = document.getElementById("signup-section");
+    const successState  = document.getElementById("success-state");
+    const successEmail  = document.getElementById("success-email");
+    const successTopics = document.getElementById("success-topics");
+    const successMax    = document.getElementById("success-max");
+    const papersDisplay = document.getElementById("papers-display");
+    const papersInput   = document.getElementById("max-papers-input");
+
+    // ── Stepper ───────────────────────────────────────────────────────────
+    let maxPapers = 6;
+    function updateStepper() {
+      papersDisplay.textContent = maxPapers;
+      papersInput.value = maxPapers;
+    }
+    document.getElementById("btn-minus").addEventListener("click", function() {
+      maxPapers = Math.max(3, maxPapers - 1);
+      updateStepper();
+    });
+    document.getElementById("btn-plus").addEventListener("click", function() {
+      maxPapers = Math.min(15, maxPapers + 1);
+      updateStepper();
+    });
+
+    // ── Validation helpers ────────────────────────────────────────────────
     function showError(msg) {
       errorMsg.textContent = msg;
       errorMsg.classList.add("visible");
-      emailInput.setAttribute("aria-invalid", "true");
     }
-
     function clearError() {
       errorMsg.textContent = "";
       errorMsg.classList.remove("visible");
       emailInput.removeAttribute("aria-invalid");
     }
 
+    // ── Form submit ───────────────────────────────────────────────────────
     form.addEventListener("submit", async function(e) {
       e.preventDefault();
       clearError();
 
       const email = emailInput.value.trim().toLowerCase();
+      const checkedBoxes = form.querySelectorAll('input[name="topics"]:checked');
+      const topics = Array.from(checkedBoxes).map(cb => cb.value);
 
-      // Basic client-side format check (server validates too)
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         showError("That email looks off — please check and try again.");
         emailInput.focus();
         return;
       }
+      if (topics.length === 0) {
+        showError("Please select at least one category.");
+        return;
+      }
 
       submitBtn.disabled = true;
-      submitBtn.textContent = "Sending…";
+      submitBtn.textContent = "Subscribing\u2026";
 
       try {
         const res = await fetch(SUBSCRIBE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, topics, max_papers: maxPapers }),
         });
 
         if (res.ok) {
-          form.style.display = "none";
+          // Populate success state
+          successEmail.textContent = email;
+          successTopics.textContent = topics.map(t => TOPIC_LABELS[t] || t).join(", ");
+          successMax.textContent = "Max " + maxPapers + " papers per week";
+
+          // Swap views
+          signupSection.style.display = "none";
           successState.classList.add("visible");
         } else {
           const data = await res.json().catch(() => ({}));
-          const msg = data.error || "Something went wrong. Please try again.";
-          showError(msg);
+          showError(data.error || "Something went wrong. Please try again.");
           submitBtn.disabled = false;
-          submitBtn.textContent = "Subscribe to the weekly arXiv Digest";
+          submitBtn.textContent = "Subscribe";
         }
 
       } catch (_err) {
         showError("Could not reach the server. Please check your connection and try again.");
         submitBtn.disabled = false;
-        submitBtn.textContent = "Subscribe to the weekly arXiv Digest";
+        submitBtn.textContent = "Subscribe";
       }
     });
   </script>

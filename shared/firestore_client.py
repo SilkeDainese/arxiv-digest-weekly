@@ -77,11 +77,12 @@ def delete_subscriber(doc_id: str) -> None:
     logger.info("Subscriber deleted: doc_id=%s", doc_id)
 
 
-def update_subscriber_topics(doc_id: str, topics: list[str]) -> None:
-    """Update a subscriber's topic list."""
-    subscribers_col().document(doc_id).update({
-        "topics": topics,
-    })
+def update_subscriber_topics(doc_id: str, topics: list[str], max_papers: int | None = None) -> None:
+    """Update a subscriber's topic list and optionally their max_papers setting."""
+    data: dict = {"topics": topics}
+    if max_papers is not None:
+        data["max_papers"] = max_papers
+    subscribers_col().document(doc_id).update(data)
     logger.info("Subscriber topics updated: doc_id=%s", doc_id)
 
 

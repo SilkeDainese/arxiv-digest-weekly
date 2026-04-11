@@ -16,10 +16,11 @@ from shared.ai_scorer import _strip_latex
 
 # ─────── Brand palette ────────────────────────────────────────────────────
 # Kept in sync with ~/Projects/arxiv-digest/brand.py
-PINE = "#2F4F3E"
+PINE = "#2C5530"          # Primary brand green (updated to exact spec)
 GOLD = "#EBC944"
 UMBER = "#7A5A3A"
-ASH_WHITE = "#F6F5F2"
+RUST = "#A0522D"          # Terracotta for destructive/unsubscribe actions
+ASH_WHITE = "#F5F3EE"     # Warm cream background (spec)
 ASH_BLACK = "#2B2B2B"
 CARD_BORDER = "#D8D6D0"
 WARM_GREY = "#6A6A66"
@@ -32,6 +33,7 @@ WARM_WHITE = "#FFFDF8"
 FOOTER_BG = "#F0EDE6"
 SOFT_GREY = "#BBB"
 CHARCOAL = "#1F1F1F"
+CARD_BG = "#F0EFEB"       # Light grey card background
 
 FONT_HEADING = "'DM Serif Display', Georgia, serif"
 FONT_BODY = "'IBM Plex Sans', Helvetica, Arial, sans-serif"
@@ -532,29 +534,301 @@ Logs: {logs_url}
     return subject, html_body, text_body
 
 
-# ─────── Static pages (unsubscribe / manage / cancel confirmation) ────────
+# ─────── Shared web page shell (for Cloud Function HTML responses) ─────────
+
+_PAGE_TOPIC_LABELS = {
+    "exoplanets":      "Planets &amp; exoplanets",
+    "stars":           "Stars",
+    "galaxies":        "Galaxies",
+    "cosmology":       "Cosmology",
+    "high_energy":     "High-energy astrophysics",
+    "instrumentation": "Instrumentation",
+    "solar_helio":     "Solar &amp; heliophysics",
+    "methods_ml":      "Methods &amp; machine learning",
+}
+
+_PAGE_CSS = f"""
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: {ASH_WHITE};
+      color: {ASH_BLACK};
+      min-height: 100vh;
+    }}
+    .header {{
+      background: {PINE};
+      color: white;
+      padding: 14px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }}
+    .page {{
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }}
+    h1 {{
+      font-family: Georgia, serif;
+      font-size: 28px;
+      font-weight: 700;
+      color: {ASH_BLACK};
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }}
+    h2 {{
+      font-family: Georgia, serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: {ASH_BLACK};
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }}
+    p {{
+      font-size: 15px;
+      color: #555;
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }}
+    .icon-circle {{
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: {CARD_BG};
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 32px auto 24px;
+      font-size: 32px;
+    }}
+    .card {{
+      background: {CARD_BG};
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin: 20px 0;
+    }}
+    .card-label {{
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #888;
+      margin-bottom: 10px;
+    }}
+    .card-topics {{
+      font-size: 14px;
+      font-weight: 600;
+      color: {ASH_BLACK};
+      margin-bottom: 6px;
+    }}
+    .card-muted {{
+      font-size: 13px;
+      color: #888;
+    }}
+    .btn {{
+      display: block;
+      width: 100%;
+      padding: 14px 20px;
+      background: {PINE};
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      margin-top: 20px;
+    }}
+    .btn:hover {{ background: #224228; }}
+    .btn-rust {{
+      background: {RUST};
+    }}
+    .btn-rust:hover {{ background: #8B4513; }}
+    label.checkbox-row {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      font-size: 14px;
+      color: {ASH_BLACK};
+      cursor: pointer;
+      border-bottom: 1px solid #E8E6E0;
+    }}
+    label.checkbox-row:last-child {{ border-bottom: none; }}
+    label.checkbox-row input[type="checkbox"] {{
+      width: 18px;
+      height: 18px;
+      accent-color: {PINE};
+      flex-shrink: 0;
+    }}
+    .form-label {{
+      font-size: 13px;
+      font-weight: 600;
+      color: {ASH_BLACK};
+      display: block;
+      margin-bottom: 6px;
+    }}
+    input[type="email"], input[type="email"][readonly] {{
+      width: 100%;
+      padding: 11px 14px;
+      font-size: 15px;
+      border: 1.5px solid #D4D0C8;
+      border-radius: 8px;
+      background: #fff;
+      color: {ASH_BLACK};
+      margin-bottom: 16px;
+    }}
+    input[readonly] {{ background: {CARD_BG}; color: #888; }}
+    .section-head {{
+      font-size: 13px;
+      font-weight: 600;
+      color: {ASH_BLACK};
+      margin: 20px 0 4px;
+    }}
+    .small-text {{
+      font-size: 12px;
+      color: #888;
+      margin-top: 12px;
+      line-height: 1.5;
+    }}
+    .link {{
+      color: {PINE};
+      text-decoration: underline;
+      font-size: 14px;
+    }}
+    .link-rust {{
+      color: {RUST};
+      text-decoration: underline;
+      font-size: 14px;
+    }}
+    .footer-credit {{
+      font-size: 12px;
+      color: #AAA;
+      text-align: center;
+      margin-top: 40px;
+    }}
+    .footer-credit a {{ color: #AAA; }}
+    .centered {{ text-align: center; }}
+    .stepper {{
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }}
+    .stepper button {{
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1.5px solid #D4D0C8;
+      background: white;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      padding: 0;
+    }}
+    .stepper button:hover {{ background: {CARD_BG}; }}
+    .stepper-val {{
+      font-size: 16px;
+      font-weight: 600;
+      min-width: 24px;
+      text-align: center;
+    }}
+    .stepper-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #E8E6E0;
+    }}
+    .stepper-label {{
+      font-size: 14px;
+      color: {ASH_BLACK};
+    }}
+    .error-inline {{
+      background: #FFF0F0;
+      border: 1px solid #F5ABAB;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: #C0392B;
+      margin-bottom: 12px;
+    }}
+"""
 
 
-def build_unsubscribe_page(signup_url: str = "https://silkedainese.github.io/arxiv-digest") -> str:
-    """Return HTML page shown after successful unsubscribe."""
+def _web_page(
+    title: str,
+    body_html: str,
+    show_header: bool = True,
+    head_extra: str = "",
+) -> str:
+    header = (
+        f'<div class="header">AU student digest</div>'
+        if show_header else ""
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Unsubscribed</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {{ font-family: Georgia, serif; max-width: 480px; margin: 80px auto; padding: 20px; color: #333; text-align: center; }}
-    h1 {{ font-size: 20px; }}
-    a {{ color: {PINE}; }}
-  </style>
+  <title>{_h(title)}</title>
+  <style>{_PAGE_CSS}</style>
+  {head_extra}
 </head>
 <body>
-  <h1>You've been removed.</h1>
-  <p>You'll no longer receive Silke's arXiv Digest.</p>
-  <p>Changed your mind? <a href="{_h(signup_url)}">Sign up again.</a></p>
+  {header}
+  <div class="page">
+    {body_html}
+  </div>
 </body>
 </html>"""
+
+
+def _footer_credit() -> str:
+    return (
+        '<div class="footer-credit">'
+        'Made by <a href="mailto:dainese@phys.au.dk">Silke Dainese</a> '
+        '&middot; dainese@phys.au.dk'
+        '</div>'
+    )
+
+
+# ─────── Static pages (unsubscribe / manage / cancel confirmation) ────────
+
+
+def build_unsubscribe_confirm_page(email: str, confirm_url: str) -> str:
+    """Return HTML two-step confirm page (GET) before actually deleting."""
+    body = f"""
+    <h2>Confirm unsubscribe</h2>
+    <p>You requested to unsubscribe <strong>{_h(email)}</strong> from the weekly digest.
+       Click below to confirm.</p>
+    <form method="POST" action="{_h(confirm_url)}">
+      <button type="submit" class="btn btn-rust">Confirm unsubscribe</button>
+    </form>
+    <p class="small-text" style="margin-top:16px">
+      If you didn't request this, no action needed — your subscription stays active.
+    </p>
+    {_footer_credit()}
+    """
+    return _web_page("Confirm unsubscribe", body, show_header=True)
+
+
+def build_unsubscribe_page(signup_url: str = "https://silkedainese.github.io/arxiv-digest", email: str = "") -> str:
+    """Return HTML page shown after successful unsubscribe."""
+    email_line = f"<strong>{_h(email)}</strong> has been removed. " if email else ""
+    body = f"""
+    <div class="icon-circle centered" style="display:flex">&#10005;</div>
+    <div class="centered">
+      <h1>You've been unsubscribed</h1>
+      <p>{email_line}You won't receive any more digests.</p>
+      <a href="{_h(signup_url)}" class="link">Changed your mind? Subscribe again.</a>
+    </div>
+    {_footer_credit()}
+    """
+    return _web_page("Unsubscribed", body, show_header=False)
 
 
 def build_manage_page(
@@ -562,77 +836,102 @@ def build_manage_page(
     all_topics: dict[str, str],
     manage_token: str,
     manage_url: str,
+    email: str = "",
+    max_papers: int = 6,
 ) -> str:
-    """Return HTML manage-topics page with checkboxes."""
+    """Return HTML settings page with checkboxes and paper count stepper."""
     checkboxes = ""
     for topic_id, topic_label in all_topics.items():
         checked = "checked" if topic_id in current_topics else ""
         checkboxes += f"""
-    <label style="display:block;margin:8px 0;font-size:15px;">
-      <input type="checkbox" name="topics" value="{_h(topic_id)}" {checked}
-             style="margin-right:8px;">
-      {_h(topic_label)}
+    <label class="checkbox-row">
+      <input type="checkbox" name="topics" value="{_h(topic_id)}" {checked}>
+      {topic_label}
     </label>"""
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Manage your arXiv Digest topics</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {{ font-family: Georgia, serif; max-width: 480px; margin: 60px auto; padding: 20px; color: #333; }}
-    h1 {{ font-size: 20px; }}
-    button {{ padding: 10px 24px; background: {PINE}; color: white; border: none;
-              border-radius: 4px; font-size: 15px; cursor: pointer; margin-top: 16px; }}
-    button:hover {{ background: {PINE_LIGHT}; }}
-  </style>
-</head>
-<body>
-  <h1>Manage your arXiv Digest topics</h1>
-  <p>Select the topics you'd like to receive papers for each week.</p>
-  <form method="POST" action="{_h(manage_url)}">
-    <input type="hidden" name="t" value="{_h(manage_token)}">
-    {checkboxes}
-    <button type="submit">Save topics</button>
-  </form>
-</body>
-</html>"""
+    email_field = ""
+    if email:
+        email_field = f"""
+    <label class="form-label">Your email</label>
+    <input type="email" value="{_h(email)}" readonly>"""
+
+    body = f"""
+    <h2>Update your settings</h2>
+    <p>Change your categories or paper limit. Updates apply immediately.</p>
+    <form method="POST" action="{_h(manage_url)}">
+      <input type="hidden" name="t" value="{_h(manage_token)}">
+      {email_field}
+      <div class="section-head">Your categories</div>
+      <div style="background:{CARD_BG};border-radius:8px;padding:0 16px;margin-bottom:16px">
+        {checkboxes}
+      </div>
+      <div style="background:{CARD_BG};border-radius:8px;padding:0 16px;margin-bottom:16px">
+        <div class="stepper-row">
+          <span class="stepper-label">Max papers per week</span>
+          <div class="stepper">
+            <button type="button" onclick="stepPapers(-1)">&#8722;</button>
+            <span class="stepper-val" id="papers-val">{max_papers}</span>
+            <button type="button" onclick="stepPapers(1)">&#43;</button>
+          </div>
+        </div>
+      </div>
+      <input type="hidden" name="max_papers" id="max-papers-input" value="{max_papers}">
+      <button type="submit" class="btn">Update settings</button>
+    </form>
+    <p style="margin-top:20px;text-align:center">
+      <a href="{_h(manage_url)}&action=unsub" class="link-rust">Unsubscribe</a>
+    </p>
+    <p class="small-text centered">Changes take effect with your next digest.</p>
+    {_footer_credit()}
+    <script>
+      var papers = {max_papers};
+      function stepPapers(d) {{
+        papers = Math.max(3, Math.min(15, papers + d));
+        document.getElementById('papers-val').textContent = papers;
+        document.getElementById('max-papers-input').value = papers;
+      }}
+    </script>
+    """
+    return _web_page("Update settings — AU student digest", body, show_header=True)
 
 
-def build_manage_confirmation_page() -> str:
-    """Return HTML shown after successful topic update."""
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Topics updated</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: Georgia, serif; max-width: 480px; margin: 80px auto; padding: 20px; color: #333; text-align: center; }
-  </style>
-</head>
-<body>
-  <h1>Topics updated.</h1>
-  <p>You'll receive papers matching your new selection from next Monday.</p>
-</body>
-</html>"""
+def build_manage_confirmation_page(
+    email: str = "",
+    topics: list[str] | None = None,
+    max_papers: int = 6,
+    manage_url: str = "",
+) -> str:
+    """Return HTML shown after successful settings update."""
+    topics = topics or []
+    topic_labels = [_PAGE_TOPIC_LABELS.get(t, t) for t in topics]
+    topics_display = ", ".join(topic_labels) if topic_labels else "—"
+    email_line = f"at <strong>{_h(email)}</strong>" if email else ""
+
+    body = f"""
+    <div class="icon-circle centered" style="display:flex">&#10003;</div>
+    <div class="centered">
+      <h1>Settings updated!</h1>
+      <p>Your digest {email_line} has been updated. Changes take effect with your next digest.</p>
+    </div>
+    <div class="card">
+      <div class="card-label">Your categories</div>
+      <div class="card-topics">{topics_display}</div>
+      <div class="card-muted">Max {max_papers} papers per week</div>
+    </div>
+    {"" if not manage_url else f'<p class="centered"><a href="{_h(manage_url)}" class="link">Update your settings again.</a></p>'}
+    {_footer_credit()}
+    """
+    return _web_page("Settings updated — AU student digest", body, show_header=False)
 
 
 def build_cancel_confirmation_page(week_iso: str) -> str:
     """Return HTML shown after cancelling the Monday send."""
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Send cancelled</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {{ font-family: Georgia, serif; max-width: 480px; margin: 80px auto; padding: 20px; color: #333; text-align: center; }}
-  </style>
-</head>
-<body>
-  <h1>Monday send cancelled for {_h(week_iso)}.</h1>
-  <p>Nothing will go out this week. Re-run prep manually via Cloud Console or wait for next week's scheduled run.</p>
-</body>
-</html>"""
+    body = f"""
+    <div class="centered">
+      <h1>Send cancelled</h1>
+      <p>Monday send cancelled for <strong>{_h(week_iso)}</strong>.</p>
+      <p>Nothing will go out this week. Re-run prep manually via Cloud Console or wait for next week's scheduled run.</p>
+    </div>
+    {_footer_credit()}
+    """
+    return _web_page("Send cancelled", body, show_header=False)

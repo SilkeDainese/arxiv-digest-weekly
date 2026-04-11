@@ -1,19 +1,20 @@
 """Cloud Function: subscribe
 
 POST /subscribe
-Body: {"email": "student@example.com"}
+Body: {"email": "student@example.com", "topics": ["stars", "exoplanets"], "max_papers": 6}
 
 Flow:
-  1. Validate email format
-  2. Generate HMAC verification token (purpose="verify", TTL=48h)
-  3. Write Firestore doc at subscribers/{sha256(email)}:
-       {email, created_at, verified: False, verify_token_hash, source}
-  4. Send confirmation email via Gmail API
-  5. Return {ok: true}
+  1. Validate email format, topics list, and max_papers
+  2. Write Firestore doc at subscribers/{sha256(email)}:
+       {email, topics, max_papers, created_at, verified: True, source}
+  3. Send welcome email via Gmail API
+  4. Return {ok: true}
+
+No double opt-in: students are a known cohort, so we write verified:True directly
+and send a plain welcome email.
 
 GDPR:
   - Doc ID is SHA-256(email) — no email in doc ID
-  - verified:False docs never receive digest
   - Data stored in europe-west1 only
   - No rate limiting (Sprint 6 if needed)
 
@@ -31,17 +32,9 @@ import functions_framework
 
 from shared.firestore_client import subscribers_col
 from shared.gmail_client import build_message, send_message
-from shared.secrets import get_hmac_secret
-from shared.tokens import generate_token
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "silke-hub")
-REGION = os.environ.get("FUNCTION_REGION", "europe-west1")
-VERIFY_BASE_URL = (
-    f"https://{REGION}-{PROJECT_ID}.cloudfunctions.net/verify"
-)
 
 # Simple email regex — rejects obviously broken addresses, not a full RFC 5322 parser
 _EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$")
@@ -49,7 +42,25 @@ _EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,}$")
 # CORS origin
 ALLOWED_ORIGIN = "https://silkedainese.github.io"
 
-PURPOSE_VERIFY = "verify"
+VALID_TOPICS = frozenset({
+    "stars", "exoplanets", "galaxies", "cosmology",
+    "high_energy", "instrumentation", "solar_helio", "methods_ml",
+})
+
+TOPIC_LABELS = {
+    "exoplanets":      "Planets & exoplanets",
+    "stars":           "Stars",
+    "galaxies":        "Galaxies",
+    "cosmology":       "Cosmology",
+    "high_energy":     "High-energy astrophysics",
+    "instrumentation": "Instrumentation",
+    "solar_helio":     "Solar & heliophysics",
+    "methods_ml":      "Methods & machine learning",
+}
+
+MAX_PAPERS_MIN = 3
+MAX_PAPERS_MAX = 15
+MAX_PAPERS_DEFAULT = 6
 
 
 def _cors_headers(request_origin: str | None) -> dict:
@@ -89,6 +100,8 @@ def subscribe(request):
         return _error("Invalid request body", 400, cors)
 
     email = (body.get("email") or "").strip().lower()
+    topics_raw = body.get("topics")
+    max_papers_raw = body.get("max_papers", MAX_PAPERS_DEFAULT)
 
     # ── Validate email ─────────────────────────────────────────────────────
     if not email:
@@ -98,45 +111,41 @@ def subscribe(request):
     if not _EMAIL_RE.match(email):
         return _error("That email looks off — please check and try again.", 400, cors)
 
+    # ── Validate topics ────────────────────────────────────────────────────
+    if not topics_raw or not isinstance(topics_raw, list):
+        return _error("Please select at least one topic.", 400, cors)
+    topics = [t for t in topics_raw if isinstance(t, str)]
+    if not topics:
+        return _error("Please select at least one topic.", 400, cors)
+    invalid = [t for t in topics if t not in VALID_TOPICS]
+    if invalid:
+        return _error(f"Unknown topic(s): {', '.join(invalid)}", 400, cors)
+
+    # ── Validate max_papers ────────────────────────────────────────────────
+    try:
+        max_papers = int(max_papers_raw)
+    except (ValueError, TypeError):
+        max_papers = MAX_PAPERS_DEFAULT
+    max_papers = max(MAX_PAPERS_MIN, min(MAX_PAPERS_MAX, max_papers))
+
     # ── Check for existing doc (idempotent re-signup) ──────────────────────
     email_hash = hashlib.sha256(email.encode()).hexdigest()
     doc_ref = subscribers_col().document(email_hash)
     existing = doc_ref.get()
 
     if existing.exists:
-        data = existing.to_dict()
-        if data.get("verified"):
-            # Already verified — silently return ok (don't leak whether subscribed)
-            logger.info("Re-signup attempt for already-verified email hash %s", email_hash[:8])
-            return _ok(cors)
-        else:
-            # Pending verification — resend the confirmation email
-            logger.info("Resending confirmation for unverified email hash %s", email_hash[:8])
-            try:
-                _send_confirmation(email, email_hash)
-            except Exception as exc:
-                logger.error("ERR-ARXIV-SUBSCRIBE-EMAIL: Failed to resend confirmation: %s", exc)
-                return _error("Could not send confirmation email — please try again.", 500, cors)
-            return _ok(cors)
+        # Already subscribed — silently return ok (don't leak whether subscribed)
+        logger.info("Re-signup attempt for existing email hash %s", email_hash[:8])
+        return _ok(cors)
 
-    # ── Generate verification token ────────────────────────────────────────
-    try:
-        hmac_secret = get_hmac_secret()
-    except Exception as exc:
-        logger.error("ERR-ARXIV-SUBSCRIBE-SECRET: Could not load hmac-secret: %s", exc)
-        return _error("Server configuration error — please try again later.", 500, cors)
-
-    verify_token = generate_token(email, PURPOSE_VERIFY, hmac_secret, ttl_override=48 * 3600)
-    # Store hash of token (not the token itself) so Firestore dump doesn't expose valid tokens
-    token_hash = hashlib.sha256(verify_token.encode()).hexdigest()
-
-    # ── Write Firestore doc ────────────────────────────────────────────────
+    # ── Write Firestore doc (verified immediately) ─────────────────────────
     try:
         doc_ref.set({
             "email": email,
+            "topics": topics,
+            "max_papers": max_papers,
             "created_at": datetime.now(timezone.utc),
-            "verified": False,
-            "verify_token_hash": token_hash,
+            "verified": True,
             "source": "signup_v1",
         })
         logger.info("Subscriber doc created: hash=%s", email_hash[:8])
@@ -144,61 +153,55 @@ def subscribe(request):
         logger.error("ERR-ARXIV-SUBSCRIBE-FIRESTORE: Write failed: %s", exc)
         return _error("Could not save your signup — please try again.", 500, cors)
 
-    # ── Send confirmation email ────────────────────────────────────────────
+    # ── Send welcome email ─────────────────────────────────────────────────
     try:
-        verify_url = f"{VERIFY_BASE_URL}?token={verify_token}"
-        _send_confirmation_with_url(email, verify_url)
+        _send_welcome(email, topics, max_papers)
     except Exception as exc:
         logger.error("ERR-ARXIV-SUBSCRIBE-EMAIL: Gmail send failed: %s", exc)
-        # Doc is written — subscriber can retry by re-submitting the form
-        return _error("Could not send confirmation email — please try again.", 500, cors)
+        # Non-fatal: subscriber is active, show success to user
+        return _ok(cors)
 
     return _ok(cors)
 
 
-def _send_confirmation(email: str, email_hash: str) -> None:
-    """Regenerate and resend a confirmation email for an unverified doc."""
-    hmac_secret = get_hmac_secret()
-    verify_token = generate_token(email, PURPOSE_VERIFY, hmac_secret, ttl_override=48 * 3600)
-    # Update token hash on the doc
-    token_hash = hashlib.sha256(verify_token.encode()).hexdigest()
-    subscribers_col().document(email_hash).update({"verify_token_hash": token_hash})
-    verify_url = f"{VERIFY_BASE_URL}?token={verify_token}"
-    _send_confirmation_with_url(email, verify_url)
-
-
-def _send_confirmation_with_url(email: str, verify_url: str) -> None:
-    """Build and send the confirmation email."""
-    subject = "Confirm your arXiv Digest subscription"
+def _send_welcome(email: str, topics: list[str], max_papers: int) -> None:
+    """Build and send the welcome email."""
+    topic_display = ", ".join(TOPIC_LABELS.get(t, t) for t in topics)
+    subject = "You're subscribed to AU student digest"
     html_body = f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"></head>
-<body style="font-family:Georgia,serif;max-width:520px;margin:40px auto;padding:20px;color:#2D2D2D;line-height:1.6;">
-  <h2 style="font-size:20px;color:#2C5530;margin-bottom:8px;">Almost there</h2>
-  <p>Click the link below to confirm your subscription to the Weekly arXiv Digest:</p>
-  <p style="margin:28px 0;">
-    <a href="{verify_url}"
-       style="display:inline-block;padding:12px 24px;background:#2C5530;color:#fff;
-              text-decoration:none;border-radius:4px;font-size:15px;">
-      Confirm subscription
-    </a>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+             max-width:520px;margin:40px auto;padding:20px;color:#2B2B2B;line-height:1.6;
+             background:#F5F3EE;">
+  <div style="font-size:15px;font-weight:600;color:#2C5530;margin-bottom:4px;">AU student digest</div>
+  <h2 style="font-size:22px;font-family:Georgia,serif;font-weight:700;margin:16px 0 8px;">
+    You're subscribed.
+  </h2>
+  <p style="color:#555;">Your weekly arXiv digest will arrive every Monday morning.</p>
+  <div style="background:#F0EFEB;border-radius:10px;padding:16px 20px;margin:20px 0;">
+    <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+                color:#888;margin-bottom:8px;">YOUR CATEGORIES</div>
+    <div style="font-weight:600;font-size:14px;color:#2B2B2B;margin-bottom:4px;">{topic_display}</div>
+    <div style="font-size:13px;color:#888;">Max {max_papers} papers per week</div>
+  </div>
+  <p style="color:#555;font-size:13px;">
+    Manage settings or unsubscribe from any digest email.
   </p>
-  <p style="color:#666;font-size:14px;">
-    This link expires in 48 hours. If you didn't sign up, you can ignore this email.
-  </p>
-  <hr style="border:none;border-top:1px solid #DDD;margin:32px 0 20px;">
-  <p style="font-size:13px;color:#888;">
-    — Silke Dainese, Aarhus University<br>
-    <a href="mailto:silke.dainese@phys.au.dk" style="color:#888;">silke.dainese@phys.au.dk</a>
+  <hr style="border:none;border-top:1px solid #DDD;margin:28px 0 20px;">
+  <p style="font-size:12px;color:#AAA;">
+    Made by <a href="mailto:dainese@phys.au.dk" style="color:#AAA;">Silke Dainese</a>
+    &middot; dainese@phys.au.dk
   </p>
 </body>
 </html>"""
     text_body = (
-        f"Almost there — click the link below to confirm your arXiv Digest subscription:\n\n"
-        f"{verify_url}\n\n"
-        f"This link expires in 48 hours.\n"
-        f"If you didn't sign up, you can ignore this email.\n\n"
-        f"— Silke Dainese, Aarhus University"
+        f"You're subscribed to AU student digest.\n\n"
+        f"Your weekly arXiv digest will arrive every Monday morning.\n\n"
+        f"Your categories: {topic_display}\n"
+        f"Max {max_papers} papers per week\n\n"
+        f"Manage settings or unsubscribe from any digest email.\n\n"
+        f"— Silke Dainese · dainese@phys.au.dk"
     )
     msg = build_message(
         to_email=email,
