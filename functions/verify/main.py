@@ -179,6 +179,7 @@ def verify(request):
 
 
 def _success_page() -> tuple:
-    body = """<p>You're subscribed. The next digest arrives Monday morning.</p>
+    body = """<p>Your subscription is confirmed. You'll get your first digest next Monday morning.
+Every email includes a one-click unsubscribe link.</p>
 <p class="muted">— Silke</p>"""
-    return _html_page("You're subscribed", "You're subscribed.", body)
+    return _html_page("You're on the list", "You're on the list", body)

@@ -50,3 +50,4 @@ htmlcov/
 
 # Local test outputs
 test_output/
+.firebaserc
