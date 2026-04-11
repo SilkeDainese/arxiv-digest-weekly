@@ -83,7 +83,7 @@ class TestVerifyHappyPath:
 
             assert status == 200
             assert "text/html" in headers["Content-Type"]
-            assert "subscribed" in html.lower()
+            assert "on the list" in html.lower()
 
     def test_valid_token_marks_verified(self):
         token = _make_token()
@@ -119,7 +119,7 @@ class TestVerifyHappyPath:
             html, status, _ = verify(req)
 
             assert status == 200
-            assert "subscribed" in html.lower()
+            assert "on the list" in html.lower()
             doc_ref.update.assert_not_called()  # no second update
 
 

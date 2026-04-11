@@ -49,7 +49,7 @@ def make_paper(i: int = 1) -> dict:
         "pdf_url": f"https://arxiv.org/pdf/2501.0000{i}",
         "global_score": float(i * 10),
         # Quality gate requires these fields from the AI scoring step
-        "plain_summary": f"Summary for paper {i}.",
+        "plain_summary": f"Stellar evolution study {i}: radial velocity confirms binary orbit and mass transfer history.",
         "highlight_phrase": f"stellar evolution paper {i}",
         "score_tier": "ai",
     }
@@ -71,6 +71,7 @@ class TestUnsubscribeFunction:
         mock_get_sub.return_value = make_subscriber()
         token = generate_token(EMAIL, PURPOSE_UNSUBSCRIBE, SECRET)
         req = self._make_request(token)
+        req.method = "POST"  # Two-step: GET shows confirm page, POST executes delete
 
         from functions.unsub.main import unsubscribe
         response = unsubscribe(req)
@@ -132,12 +133,13 @@ class TestManageFunction:
         req.url = f"https://functions.example.com/manage?t={token}"
         return req
 
-    def _make_post_request(self, token: str, topics: list[str]):
+    def _make_post_request(self, token: str, topics: list[str], max_papers: int = 6):
         req = MagicMock()
         req.args = {"t": token}
         req.method = "POST"
         req.form = MagicMock()
         req.form.getlist.return_value = topics
+        req.form.get.side_effect = lambda k, d=None: str(max_papers) if k == "max_papers" else d
         req.url = f"https://functions.example.com/manage?t={token}"
         return req
 
@@ -166,7 +168,7 @@ class TestManageFunction:
         response = manage(req)
 
         assert response[1] == 200
-        mock_update.assert_called_once_with("sub001", ["stars", "exoplanets"])
+        mock_update.assert_called_once_with("sub001", ["stars", "exoplanets"], max_papers=6)
 
     @patch("functions.manage.main.get_hmac_secret", return_value=SECRET)
     @patch("functions.manage.main.get_subscriber_by_email")
