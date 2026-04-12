@@ -84,9 +84,18 @@ def prep_and_preview(request):
     kw_count = len(scored_papers) - ai_count
     logger.info("AI scoring complete: %d ai-scored, %d keyword-scored", ai_count, kw_count)
 
-    # ── 2. Store in Firestore ──────────────────────────────────────────────
+    # ── 2. Store in Firestore — AI-scored papers only ─────────────────────
+    # Only papers with AI summaries are stored. The pre-filter already selected
+    # the top-50 globally relevant papers; non-AI papers are low-quality and
+    # would fail the Monday quality gate anyway. This keeps the pending digest
+    # clean and prevents quality gate aborts caused by keyword-only papers.
+    ai_ready_papers = [p for p in scored_papers if p.get("plain_summary") and p.get("highlight_phrase")]
+    logger.info(
+        "Storing %d AI-ready papers (dropped %d keyword-only)",
+        len(ai_ready_papers), len(scored_papers) - len(ai_ready_papers),
+    )
     set_pending_digest(week_iso, {
-        "papers": scored_papers,
+        "papers": ai_ready_papers,
         "generated_at": datetime.now(timezone.utc),
         "hold_monday_send": False,
     })

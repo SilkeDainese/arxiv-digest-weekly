@@ -401,3 +401,64 @@ class TestSendDigestFunction:
         call_kwargs = mock_log.call_args
         # status is the 4th positional arg
         assert call_kwargs[0][3] == "failed"
+
+
+# ── prep_and_preview: only AI-ready papers stored ─────────────────────────────
+
+class TestPrepAndPreviewFunction:
+    """Verify prep_and_preview only stores papers with AI summaries."""
+
+    def _make_request(self):
+        req = MagicMock()
+        return req
+
+    def _make_ai_paper(self, i: int) -> dict:
+        p = make_paper(i)
+        p["plain_summary"] = f"AI summary for paper {i}: stellar evolution radial velocity binary orbit."
+        p["highlight_phrase"] = f"stellar evolution paper {i}"
+        p["score_tier"] = "ai"
+        return p
+
+    def _make_keyword_paper(self, i: int) -> dict:
+        """A keyword-only paper: no plain_summary, no highlight_phrase."""
+        p = make_paper(i)
+        p.pop("plain_summary", None)
+        p.pop("highlight_phrase", None)
+        p["score_tier"] = "keyword"
+        p["plain_summary"] = ""
+        p["highlight_phrase"] = ""
+        return p
+
+    @patch("functions.prep_preview.main.current_week_iso", return_value=WEEK)
+    @patch("functions.prep_preview.main.get_hmac_secret", return_value=SECRET)
+    @patch("functions.prep_preview.main.fetch_weekly_papers")
+    @patch("functions.prep_preview.main.score_papers_for_all_topics")
+    @patch("functions.prep_preview.main.pre_filter_for_ai")
+    @patch("functions.prep_preview.main.score_papers_with_ai")
+    @patch("functions.prep_preview.main.set_pending_digest")
+    @patch("functions.prep_preview.main.get_all_subscribers", return_value=[])
+    @patch("functions.prep_preview.main.send_message")
+    @patch("functions.prep_preview.main.build_message")
+    def test_only_ai_ready_papers_stored(
+        self, mock_build_msg, mock_send, mock_subs, mock_set, mock_ai, mock_prefilter, mock_score, mock_fetch, mock_secret, mock_week
+    ):
+        """prep_and_preview must store only papers with plain_summary + highlight_phrase."""
+        ai_papers = [self._make_ai_paper(i) for i in range(3)]
+        kw_papers = [self._make_keyword_paper(i + 10) for i in range(5)]
+        all_papers = ai_papers + kw_papers
+
+        mock_fetch.return_value = all_papers
+        mock_score.return_value = all_papers
+        mock_prefilter.return_value = ai_papers
+        # AI scorer returns the ai_papers enriched (kw papers never reach it)
+        mock_ai.return_value = ai_papers
+
+        from functions.prep_preview.main import prep_and_preview
+        prep_and_preview(self._make_request())
+
+        mock_set.assert_called_once()
+        stored = mock_set.call_args[0][1]["papers"]
+        assert len(stored) == 3, f"Expected 3 AI-ready papers, got {len(stored)}"
+        for p in stored:
+            assert p.get("plain_summary"), f"Stored paper {p['id']} has no plain_summary"
+            assert p.get("highlight_phrase"), f"Stored paper {p['id']} has no highlight_phrase"
